@@ -6,6 +6,8 @@ CarMind is a vehicle-agnostic AI system designed to make car ownership easier fo
 
 Instead of acting as a generic automotive chatbot, CarMind combines conversational AI with persistent vehicle memory, manufacturer-document retrieval, maintenance intelligence, deterministic safety logic, and tool-based workflows.
 
+CarMind uses **Jev-powered semantic routing** to dynamically select only the capabilities relevant to each request, keeping the agent context focused while preserving deterministic control over safety, maintenance, permissions, and persistent state.
+
 Users can interact with the same ownership state through a Web interface or WhatsApp-style channel.
 
 ---
@@ -98,11 +100,13 @@ A lack of a triggered rule does **not** mean the vehicle has been declared safe 
 
 ---
 
-### Agentic Tool Use
+### Jev-Powered Semantic Routing
 
-CarMind uses a bounded planner and capability-based tool system.
+CarMind uses **Jev** as a semantic routing layer to determine which vehicle capabilities are relevant to each user request.
 
-Capabilities include areas such as:
+Instead of exposing the planner to every available capability on every turn, Jev evaluates the request against the capability registry and selects only the relevant packs.
+
+Examples include:
 
 - Engine
 - Battery
@@ -116,7 +120,11 @@ Capabilities include areas such as:
 - Trip readiness
 - Manufacturer documentation
 
-Semantic routing selects relevant capabilities while deterministic Python logic handles permissions, validation, safety boundaries, and state mutation.
+This keeps the reasoning context focused and reduces unnecessary prompt size and tool exposure.
+
+Jev is responsible only for **semantic relevance**. It does not make safety decisions, modify persistent vehicle state, or determine manufacturer facts.
+
+Those responsibilities remain inside deterministic CarMind components.
 
 ---
 
@@ -176,9 +184,15 @@ This avoids duplicating ownership logic across communication channels.
                     │              │              │
                     └──────────────┼──────────────┘
                                    │
-                          ┌────────▼────────┐
-                          │ Planner / Router│
-                          └────────┬────────┘
+                        ┌───────────────────────┐
+                        │  Jev Semantic Router  │
+                        └───────────┬───────────┘
+                                    │
+                        Relevant capability packs
+                                    │
+                        ┌───────────▼───────────┐
+                        │    Bounded Planner    │
+                        └───────────┬───────────┘
                                    │
                      Relevant capability packs
                                    │
