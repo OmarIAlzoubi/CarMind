@@ -6,6 +6,7 @@ CarMind is a vehicle-agnostic AI system designed to make car ownership easier fo
 
 Instead of acting as a generic automotive chatbot, CarMind combines conversational AI with persistent vehicle memory, manufacturer-document retrieval, maintenance intelligence, deterministic safety logic, and tool-based workflows.
 
+CarMind uses **Jev-powered semantic routing** to dynamically select only the capabilities relevant to each request, keeping the agent context focused while preserving deterministic control over safety, maintenance, permissions, and persistent state.
 Users can interact with the same ownership state through a Web interface or WhatsApp-style channel.
 
 ---
@@ -182,9 +183,15 @@ This avoids duplicating ownership logic across communication channels.
                     │              │              │
                     └──────────────┼──────────────┘
                                    │
-                          ┌────────▼────────┐
-                          │ Planner / Router│
-                          └────────┬────────┘
+                        ┌───────────────────────┐
+                        │  Jev Semantic Router  │
+                        └───────────┬───────────┘
+                                    │
+                        Relevant capability packs
+                                    │
+                        ┌───────────▼───────────┐
+                        │    Bounded Planner    │
+                        └───────────┬───────────┘
                                    │
                      Relevant capability packs
                                    │
