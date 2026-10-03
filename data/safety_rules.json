@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "scope": {"make": "Fictional", "model": "Everyday", "year": 2024, "engine": "Fictional gasoline engine"},
+  "notice": "Simulation policy only. Not manufacturer specifications or universal automotive thresholds.",
+  "max_age_seconds": 604800,
+  "coolant": {"rule_id": "SIM_COOLANT_SUSTAINED", "required_evidence": ["coolant_temperature"], "unit": "degC", "minimum": 109, "samples": 3, "duration_seconds": 600, "disposition": "STOP_WHEN_SAFE"},
+  "tires": {"rule_id": "SIM_TIRE_LOSS", "required_evidence": ["front_left_tire_pressure", "front_right_tire_pressure", "rear_left_tire_pressure", "rear_right_tire_pressure"], "unit": "psi", "minimum": 25, "drop": 5, "window_seconds": 604800, "disposition": "STOP_WHEN_SAFE"},
+  "starting_voltage": {"rule_id": "SIM_STARTING_VOLTAGE", "required_evidence": ["battery_voltage", "operating_state"], "unit": "V", "maximum": 9.2, "samples": 2, "disposition": "SERVICE_REVIEW"},
+  "precedence": ["STOP_WHEN_SAFE", "UNDETERMINED", "SERVICE_REVIEW", "NO_RULE_TRIGGERED"]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "engine",
+  "version": 1,
+  "routing_description": "Engine shaking, rough idle, unusual engine sounds or engine warning observations.",
+  "planner_instructions": "Gather engine symptoms and operating-state history. Keep owner-reported symptoms distinct from measurements and cite the original evidence IDs. Compare observations in similar operating states; use recent history for a bounded view and the full observations when timing matters. Missing RPM, vibration or warning data is an information gap, not evidence of normal operation. Do not infer a specific failed component from a symptom alone.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_engine_observations",
+    "get_engine_recent_history"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

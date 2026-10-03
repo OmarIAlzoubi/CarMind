@@ -1,0 +1,10 @@
+[project]
+name = "carmind"
+version = "0.1.0"
+description = "A personal AI car ownership assistant."
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+live = ["openai==3.19.2", "typesafe-sdk==0.7.2"]
+manual = ["pypdf==6.19.0"]

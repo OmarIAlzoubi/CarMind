@@ -1,0 +1,16 @@
+{
+  "sources": [
+    {
+      "source_id": "test-only-fictional-benchmark-source",
+      "manufacturer": "Example Motors",
+      "model": "Apex GT",
+      "model_year": null,
+      "market": "FICTIONAL",
+      "document_title": "TEST-ONLY FICTIONAL benchmark source",
+      "source_type": "TEST_ONLY_NON_PRODUCTION_FICTIONAL",
+      "official_source_reference": "https://example.invalid/carmind-fictional-benchmark",
+      "retrieved_at": "2026-01-01",
+      "document_version": null
+    }
+  ]
+}

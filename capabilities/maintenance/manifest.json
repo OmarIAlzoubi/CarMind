@@ -1,0 +1,20 @@
+{
+  "id": "maintenance",
+  "version": 1,
+  "routing_description": "Maintenance timing and reminder questions, owner-reported odometer readings, and what service information is available.",
+  "planner_instructions": "Read the manufacturer schedule, provenance and application-calculated maintenance state. Never calculate or invent intervals, due points or status. Match model, year, market and configuration exactly. UNKNOWN applicability or history must stay unknown. Upcoming windows are application policy, not manufacturer facts.",
+  "tool_ids": [
+    "get_due_maintenance_items",
+    "get_latest_service_record",
+    "get_maintenance_odometer_context",
+    "get_maintenance_source_reference",
+    "get_manufacturer_maintenance_rule",
+    "get_manufacturer_maintenance_schedule",
+    "get_service_history",
+    "get_upcoming_maintenance_items",
+    "get_vehicle_profile"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

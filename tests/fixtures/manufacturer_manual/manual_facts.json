@@ -1,0 +1,9 @@
+{
+  "source_id": "test-only-fictional-example-motors-apex-gt",
+  "authority": "TEST_ONLY_FICTIONAL",
+  "facts": [
+    {"id": "fictional_tire_pressure", "category": "tire_pressure", "value": "31 psi (fictional)", "conditions": "normal load", "section": "Vehicle Information", "physical_pages": [1], "printed_pages": []},
+    {"id": "fictional_oil_grade", "category": "engine_oil", "value": "XM-7 (fictional)", "conditions": "test fixture only", "section": "Vehicle Information", "physical_pages": [1], "printed_pages": []}
+  ],
+  "severe_usage": {}
+}

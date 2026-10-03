@@ -1,0 +1,14 @@
+{
+  "id": "cooling",
+  "version": 1,
+  "routing_description": "Temperature warnings, rising coolant readings and changes in cooling behavior.",
+  "planner_instructions": "Coolant history provides individual chronological readings; the summary provides endpoints, extrema and arithmetic change with supporting IDs. Neither supplies thresholds or diagnostic interpretation. Preserve units and timestamps and cite supporting observations. Separate a sustained change from a single reading using the available history. If temperature observations are missing, identify that gap and use the owner message as a report rather than inventing measurements. No manufacturer limits are supplied by this pack.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_coolant_history",
+    "get_cooling_summary"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

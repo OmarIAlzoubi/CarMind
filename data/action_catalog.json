@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "actions": [
+    {"action_id": "REVIEW_RECENT_EVIDENCE", "category": "information", "risk_level": "informational", "approved_wording": "Review the recent observations and any missing information.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]},
+    {"action_id": "CHECK_TIRE_PRESSURE_MANUALLY", "category": "inspection", "risk_level": "low", "approved_wording": "When parked in a safe location, check tire pressure against the vehicle placard or ask a qualified technician.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW"]},
+    {"action_id": "ARRANGE_SERVICE_REVIEW", "category": "service", "risk_level": "low", "approved_wording": "Arrange a professional service review; this does not imply driving the vehicle to the workshop.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]},
+    {"action_id": "SHARE_EVIDENCE_WITH_WORKSHOP", "category": "information", "risk_level": "informational", "approved_wording": "Share the recorded symptoms and observations with a qualified workshop.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]},
+    {"action_id": "REVIEW_MAINTENANCE_HISTORY", "category": "ownership", "risk_level": "informational", "approved_wording": "Review the recorded maintenance history and clarify missing entries.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]},
+    {"action_id": "CHECK_BATTERY_AT_SERVICE", "category": "service", "risk_level": "low", "approved_wording": "Ask a qualified technician to check the battery and starting system.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]},
+    {"action_id": "PREPARE_TRIP_CHECKLIST", "category": "ownership", "risk_level": "informational", "approved_wording": "Review available maintenance, tire, battery and cooling information before a trip; this is not driving clearance.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "UNDETERMINED"]},
+    {"action_id": "REVIEW_UPCOMING_MAINTENANCE", "category": "ownership", "risk_level": "informational", "approved_wording": "Review the maintenance engine's upcoming and due items with their source references.", "allowed_dispositions": ["NO_RULE_TRIGGERED", "SERVICE_REVIEW", "STOP_WHEN_SAFE", "UNDETERMINED"]}
+  ]
+}

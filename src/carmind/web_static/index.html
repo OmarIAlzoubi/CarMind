@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101c25">
+  <title>CarMind — سيارتك، بوضوح</title>
+  <style>
+    :root{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;color:#17252c;background:#e9eeec}
+    *{box-sizing:border-box} body{margin:0;min-width:0} button,input,select{font:inherit}
+    button{cursor:pointer} button:disabled{opacity:.55;cursor:default}
+    .shell{max-width:1440px;margin:auto;min-height:100dvh;padding:22px 28px 28px}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:14px;color:#ecf5ef;background:#14252b;border-radius:22px;padding:14px 22px;margin-bottom:18px;box-shadow:0 14px 35px #152b2920}
+    .brand{display:flex;align-items:center;gap:12px;font-size:22px;font-weight:800;letter-spacing:-.05em;white-space:nowrap}
+    .mark{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:#b4e3c9;color:#112e27;font-weight:900}
+    .brand small{display:block;font-size:11px;font-weight:500;letter-spacing:.06em;color:#abc3bd}
+    .top-actions{display:flex;align-items:center;gap:12px;min-width:0}
+    #top-vehicle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#bbd3cb}
+    .lang{border:1px solid #49635d;color:#fff;background:#20393b;border-radius:9px;padding:7px 9px}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
+    .chat{background:#fff;border:1px solid #d9e4df;border-radius:22px;box-shadow:0 20px 50px #152b2912;min-width:0;display:flex;flex-direction:column;height:calc(100dvh - 135px);min-height:540px;overflow:hidden}
+    .chat-head{padding:20px 26px;border-bottom:1px solid #e8eeeb;display:flex;align-items:center;gap:12px}
+    .orb{width:36px;height:36px;border-radius:50%;background:radial-gradient(circle at 35% 32%,#c6f2da,#54ae92 60%,#24745e);box-shadow:0 0 0 5px #edf8f2;flex:none}
+    .chat-head strong{display:block;font-size:17px}.chat-head span{font-size:12px;color:#698078}.mode-note{font-size:12px;color:#80643f;background:#fff6e8;padding:7px 14px;border-bottom:1px solid #f3e5cc}
+    .messages{flex:1;min-height:0;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:14px;background:linear-gradient(160deg,#f8fbf9 0%,#fff 64%)}
+    .msg{max-width:min(76%,680px);min-width:0;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.6;padding:13px 17px;border-radius:16px;font-size:15px}
+    .msg.bot{align-self:flex-start;background:#eaf2ee;border-end-start-radius:4px}
+    .msg.me{align-self:flex-end;background:#195c50;color:#fff;border-end-end-radius:4px}
+    .msg.error{background:#fff0e8;color:#753f26}
+    .meta-card{align-self:flex-start;max-width:min(76%,680px);width:100%;border:1px solid #dbe8e0;background:#fff;border-radius:14px;padding:15px 17px;overflow-wrap:anywhere}
+    .meta-card h3{font-size:14px;margin:0 0 7px}.meta-card p{font-size:13px;color:#526b62;margin:4px 0 12px;white-space:pre-wrap}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}.primary,.secondary{border:0;border-radius:9px;padding:9px 16px;font-weight:700}
+    .primary{background:#195c50;color:white}.secondary{background:#edf3ef;color:#274b42}
+    .source-card{align-self:flex-start;max-width:min(76%,680px);width:100%;border:1px solid #dbe8e0;border-radius:12px;background:#fff;padding:11px 14px;color:#40564d}
+    .source-card summary{cursor:pointer;font-size:13px;font-weight:700}.source-card p{font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+    .suggestions{display:flex;gap:7px;flex-wrap:wrap;padding:0 28px 14px;background:#fff}
+    .chip{border:1px solid #cfe1d8;background:#f5faf7;color:#21584b;border-radius:100px;padding:8px 13px;font-size:13px}
+    .composer{display:flex;gap:10px;align-items:flex-end;padding:15px 18px;background:#fff;border-top:1px solid #e8eeeb}
+    #message{flex:1;min-width:0;max-height:140px;resize:vertical;border:1px solid #cbdbd3;border-radius:13px;padding:12px 14px;color:#17252c;outline:none;background:#fbfdfb}
+    #message:focus{border-color:#25745f;box-shadow:0 0 0 3px #d8eee2}
+    .send{border:0;border-radius:12px;background:#195c50;color:white;font-weight:750;padding:13px 20px}
+    .side{display:flex;flex-direction:column;gap:15px;min-width:0}.panel{background:#fff;border:1px solid #d9e4df;border-radius:20px;padding:21px 22px;box-shadow:0 12px 32px #152b290b}
+    .eyebrow{font-size:11px;letter-spacing:.12em;color:#4c8975;text-transform:uppercase;font-weight:800}
+    h1{font-size:23px;line-height:1.2;margin:9px 0 4px;letter-spacing:-.03em;overflow-wrap:anywhere}
+    .muted{font-size:12px;color:#74857d;line-height:1.5}
+    #vehicle-picker{width:100%;margin:13px 0 0;border:1px solid #d9e4df;border-radius:9px;padding:9px;background:#fff;color:#233d34}
+    .mileage{background:#eaf5ee;border-radius:15px;padding:15px;margin:22px 0 6px}.mileage strong{display:block;font-size:27px;margin:3px 0;color:#17493f;letter-spacing:-.04em}
+    .detail{padding:16px 0;border-bottom:1px solid #e8eeeb}.detail:last-child{border:0;padding-bottom:0}
+    .detail strong{display:block;font-size:13px;margin-bottom:4px}.detail span{display:block;font-size:13px;color:#5a6f64;line-height:1.5;overflow-wrap:anywhere}
+    .alert{background:#fff1e7;border:1px solid #f3d1b5;border-radius:11px;padding:10px;color:#754b29}
+    .history-list{padding:0;margin:8px 0 0;list-style:none}.history-list li{padding:9px 0;border-bottom:1px solid #edf1ed;color:#566c61;font-size:13px;overflow-wrap:anywhere}
+    .history-list li:last-child{border:0}
+    @media(max-width:1050px){.layout{grid-template-columns:minmax(0,1fr) 270px}.shell{padding:16px}.side .panel{padding:18px}}
+    @media(max-width:820px){.layout{grid-template-columns:1fr}.chat{height:68dvh;min-height:480px}.side{display:grid;grid-template-columns:1fr 1fr}.messages{padding:18px}.suggestions{padding-inline:18px}}
+    @media(max-width:580px){.shell{padding:0}.top{border-radius:0;margin:0;padding:10px 14px}.top #top-vehicle{display:none}.layout{display:flex;flex-direction:column;gap:0}.chat{order:1;width:100%;height:calc(100dvh - 80px);min-height:400px;border-radius:0;border:0}.side{order:2;display:flex;width:100%;padding:14px}.chat-head{padding:15px 18px}.messages{padding:15px;gap:11px}.msg,.meta-card,.source-card{max-width:93%}.composer{padding:11px;gap:7px}.send{padding:12px 14px}.suggestions{padding:0 12px 10px}.chip{font-size:12px;padding:7px 10px}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top"><div class="brand"><div class="mark">C</div><div>CarMind<small data-i18n="tagline">سيارتك، بوضوح</small></div></div><div class="top-actions"><span id="top-vehicle"></span><select class="lang" id="language" aria-label="Language"><option value="ar">العربية</option><option value="en">English</option></select></div></header>
+    <div class="layout">
+      <main class="chat">
+        <div class="chat-head"><div class="orb"></div><div><strong>CarMind</strong><span data-i18n="chatSub">اسأل عن سيارتك، صيانتها، أو أي شيء يشغلك</span></div></div>
+        <div id="mode-note" class="mode-note" hidden></div>
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        <div id="suggestions" class="suggestions"></div>
+        <form id="composer" class="composer"><textarea id="message" rows="1" autocomplete="off" maxlength="2000" data-placeholder="placeholder" aria-label="Message CarMind" required></textarea><button id="send" class="send" type="submit" data-i18n="send">إرسال</button></form>
+      </main>
+      <aside class="side">
+        <section class="panel"><div class="eyebrow" data-i18n="myCar">سيارتي</div><h1 id="car-name"></h1><div id="car-subtitle" class="muted"></div><select id="vehicle-picker" hidden aria-label="Select vehicle"></select>
+          <div class="mileage"><span class="muted" data-i18n="odometer">آخر ممشى مسجل</span><strong id="odometer">—</strong><span id="odometer-date" class="muted"></span></div>
+          <div class="detail"><strong data-i18n="lastService">آخر صيانة</strong><span id="last-service"></span></div>
+          <div class="detail"><strong data-i18n="nextService">الصيانة القادمة</strong><span id="maintenance"></span></div>
+          <div id="concern-wrap" class="detail" hidden><strong data-i18n="needsAttention">يحتاج انتباه</strong><span id="concern" class="alert"></span></div>
+        </section>
+        <section class="panel"><div class="eyebrow" data-i18n="history">سجل الصيانة</div><ul id="history" class="history-list"></ul></section>
+      </aside>
+    </div>
+  </div>
+  <script>
+    const L={
+      ar:{tagline:'سيارتك، بوضوح',chatSub:'اسأل عن سيارتك، صيانتها، أو أي شيء يشغلك',offline:'وضع المعاينة: المحادثة الطبيعية تحتاج تشغيل الوضع المباشر بإذن منك.',myCar:'سيارتي',odometer:'آخر ممشى مسجل',lastService:'آخر صيانة',nextService:'الصيانة القادمة',needsAttention:'يحتاج انتباه',history:'سجل الصيانة',send:'إرسال',placeholder:'اسأل CarMind عن سيارتك…',unknownCar:'خلّنا نتعرف على سيارتك',unknownSub:'اكتب نوع السيارة والموديل والسنة في المحادثة',knownSub:'سيارتك الحالية',welcomeKnown:'وش حاب تعرف عن سيارتك؟',welcomeUnknown:'هلا! قل لي عن سيارتك، أو اسألني عنها.',noOdo:'ما فيه قراءة مسجلة',recorded:'سُجلت',noService:'ما فيه صيانة مسجلة بعد',unverified:'الجدول الرسمي المطابق لسوق سيارتك غير موثّق بعد.',testOnly:'جدول تجريبي فقط، ليس إرشادًا رسميًا.',noneDue:'ما فيه صيانة مستحقة حسب الجدول الموثّق.',select:'اختر سيارتك',confirm:'تأكيد',cancel:'إلغاء',change:'تحديث محفوظ بعد تأكيدك',source:'عرض المصدر',sourceCaveat:'المطابقة لسنة وسوق سيارتك غير مؤكدة',requestError:'تعذر الاتصال محليًا. جرّب مرة ثانية.',busy:'لحظة…',suggestKnown:['كيف وضع سيارتي؟','متى آخر صيانة؟','وش الزيت المناسب؟','وش يقول الكتيب عن ضغط الكفر؟'],suggestUnknown:[]},
+      en:{tagline:'Your car, understood',chatSub:'Ask about your car, maintenance, or what is on your mind',offline:'Preview mode: natural conversation needs live mode, started with your permission.',myCar:'My car',odometer:'Recorded mileage',lastService:'Last service',nextService:'Next maintenance',needsAttention:'Needs attention',history:'Service history',send:'Send',placeholder:'Ask CarMind about your car…',unknownCar:'Let’s get to know your car',unknownSub:'Tell me its make, model and year in chat',knownSub:'Your active car',welcomeKnown:'What would you like to know about your car?',welcomeUnknown:'Hi! Tell me about your car, or ask me anything about it.',noOdo:'No reading recorded',recorded:'Recorded',noService:'No service recorded yet',unverified:'A matching official schedule for your market has not been verified yet.',testOnly:'Development-only schedule; not official guidance.',noneDue:'No verified maintenance item is due.',select:'Select your car',confirm:'Confirm',cancel:'Cancel',change:'Save this change after your confirmation',source:'View source',sourceCaveat:'Year and market match are unverified',requestError:'The local connection failed. Please try again.',busy:'One moment…',suggestKnown:['How is my car?','When was my last service?','Which oil does the manual list?','What does the manual say about tire pressure?'],suggestUnknown:[]}}
+    let lang=localStorage.getItem('carmind-lang')==='en'?'en':'ar', known=false, busy=false, mode='offline';
+    const by=id=>document.getElementById(id), T=k=>L[lang][k], msg=by('messages'), picker=by('vehicle-picker');
+    function localize(){document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';by('language').value=lang;for(const e of document.querySelectorAll('[data-i18n]'))e.textContent=T(e.dataset.i18n);by('message').placeholder=T('placeholder');by('mode-note').hidden=mode==='live';by('mode-note').textContent=T('offline');renderSuggestions();}
+    function addMessage(text,role,err=false){const el=document.createElement('div');el.className='msg '+role+(err?' error':'');el.dir='auto';el.textContent=text;msg.append(el);msg.scrollTop=msg.scrollHeight;return el;}
+    function renderSuggestions(){const host=by('suggestions');host.replaceChildren();for(const q of T(known?'suggestKnown':'suggestUnknown')){const b=document.createElement('button');b.className='chip';b.type='button';b.textContent=q;b.onclick=()=>sendText(q);host.append(b);}}
+    function fmtKm(n){return n==null?'—':new Intl.NumberFormat(lang==='ar'?'ar-SA':'en-US').format(n)+' '+(lang==='ar'?'كم':'km')}
+    function fmtDate(s){return new Date(s).toLocaleDateString(lang==='ar'?'ar-SA':'en-US')}
+    function set(id,v){by(id).textContent=v}
+    async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok)throw Error(out.error||T('requestError'));return out}
+    async function refresh(){
+      const r=await fetch('/api/overview');if(!r.ok)throw Error(T('requestError'));const x=await r.json();known=!!x.vehicle;mode=x.ui_mode||'offline';localize();
+      picker.replaceChildren();if(!known&&x.vehicles.length){const o=document.createElement('option');o.value='';o.textContent=T('select');picker.append(o)}
+      for(const v of x.vehicles){const o=document.createElement('option');o.value=v.id;o.textContent=v.label;picker.append(o)}picker.hidden=x.vehicles.length<2;
+      set('car-name',known?x.vehicle.label:T('unknownCar'));set('car-subtitle',known?([x.vehicle.trim,x.vehicle.market].filter(Boolean).join(' · ')||T('knownSub')):T('unknownSub'));set('top-vehicle',known?x.vehicle.label:'');
+      if(known)picker.value=x.vehicle.id;set('odometer',known?fmtKm(x.odometer.km):'—');set('odometer-date',known&&x.odometer.recorded_at?T('recorded')+' '+fmtDate(x.odometer.recorded_at):T('noOdo'));
+      const last=known?x.last_service:null;set('last-service',last?last.type.replaceAll('_',' ')+(last.odometer_km==null?'':' · '+fmtKm(last.odometer_km))+' · '+fmtDate(last.at):T('noService'));
+      set('maintenance',!known?'—':x.manufacturer.status==='test_only'?T('testOnly'):x.manufacturer.status!=='verified'?T('unverified'):x.maintenance.length?x.maintenance.map(i=>i.item.replaceAll('_',' ')+' · '+i.status.toLowerCase()).join(' · '):T('noneDue'));
+      const concern=by('concern-wrap');concern.hidden=!known||!(x.active_concern||x.recent_concern);if(!concern.hidden)set('concern',x.active_concern?.notice||x.recent_concern?.observations?.[0]||'');
+      const list=by('history');list.replaceChildren();if(known)for(const s of x.services){const li=document.createElement('li');li.textContent=s.type.replaceAll('_',' ')+(s.odometer_km==null?'':' · '+fmtKm(s.odometer_km))+' · '+fmtDate(s.at);list.append(li)}if(!list.children.length){const li=document.createElement('li');li.textContent=T('noService');list.append(li)}
+      renderSuggestions();return x;
+    }
+    function sourceCard(s){const card=document.createElement('details');card.className='source-card';const summary=document.createElement('summary');summary.textContent=T('source')+' · '+s.title+' · '+s.section+' · PDF p. '+s.physical_page;card.append(summary);const note=document.createElement('p');note.textContent=s.applicability==='verified_applicable'?'':T('sourceCaveat');card.append(note);const excerpt=document.createElement('p');excerpt.dir='auto';excerpt.textContent=s.excerpt;card.append(excerpt);msg.append(card);msg.scrollTop=msg.scrollHeight}
+    function proposalCard(out){if(!out.proposal_id)return;const card=document.createElement('div');card.className='meta-card';const h=document.createElement('h3');h.textContent=T('change');card.append(h);const p=document.createElement('p');p.dir='auto';p.textContent=out.text;card.append(p);const actions=document.createElement('div');actions.className='actions';for(const [label,handler,cls] of [[T('confirm'),()=>submit('/api/confirm',{proposal_id:out.proposal_id}), 'primary'],[T('cancel'),()=>submit('/api/proposal/cancel',{proposal_id:out.proposal_id}),'secondary']]){const b=document.createElement('button');b.type='button';b.className=cls;b.textContent=label;b.onclick=async()=>{card.querySelectorAll('button').forEach(x=>x.disabled=true);if(await handler())card.remove();else card.querySelectorAll('button').forEach(x=>x.disabled=false)};actions.append(b)}card.append(actions);msg.append(card);msg.scrollTop=msg.scrollHeight}
+    async function submit(path,data){if(busy)return false;busy=true;by('send').disabled=true;by('message').disabled=true;const waiting=addMessage(T('busy'),'bot');try{const out=await api(path,{...data,message_id:crypto.randomUUID(),locale:lang});waiting.remove();if(out.text&&!out.proposal_id)addMessage(out.text,'bot');for(const s of out.sources||[])sourceCard(s);proposalCard(out);await refresh();return true}catch(e){waiting.remove();addMessage(T('requestError'),'bot',true);return false}finally{busy=false;by('send').disabled=false;by('message').disabled=false;by('message').focus()}}
+    function sendText(text){if(busy||!text.trim())return;by('message').value='';addMessage(text,'me');submit('/api/chat',{text})}
+    by('composer').addEventListener('submit',e=>{e.preventDefault();sendText(by('message').value)});
+    by('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText(by('message').value)}});
+    by('language').addEventListener('change',async e=>{lang=e.target.value;localStorage.setItem('carmind-lang',lang);localize();try{await refresh()}catch{}});
+    picker.addEventListener('change',async()=>{if(!picker.value)return;try{await api('/api/vehicle/select',{vehicle_id:picker.value});await refresh()}catch{addMessage(T('requestError'),'bot',true)}});
+    localize();refresh().then(()=>addMessage(known?T('welcomeKnown'):T('welcomeUnknown'),'bot')).catch(()=>addMessage(T('requestError'),'bot',true));
+  </script>
+</body>
+</html>

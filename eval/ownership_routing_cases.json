@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "purpose": "Separate labelled development examples for ownership-oriented routing; labels never enter planner or router state.",
+  "cases": [
+    {"id": "record_service", "message": "I changed the engine oil yesterday.", "required": ["service_history"]},
+    {"id": "query_service", "message": "When did I last change the oil?", "required": ["service_history"]},
+    {"id": "update_odometer", "message": "My odometer is now 18,500 km.", "required": ["maintenance"]},
+    {"id": "query_mileage", "message": "What is my current mileage?", "required": ["maintenance"]},
+    {"id": "maintenance_timing", "message": "What maintenance is coming up?", "required": ["maintenance"]},
+    {"id": "reminder", "message": "What reminders are active?", "required": ["maintenance"]},
+    {"id": "tire_symptom", "message": "My rear tire keeps losing pressure.", "required": ["tires"]},
+    {"id": "mixed_service_tire", "message": "I changed the oil and my rear tire is losing pressure.", "required": ["service_history", "tires"]}
+  ]
+}

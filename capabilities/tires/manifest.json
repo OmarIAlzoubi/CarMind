@@ -1,0 +1,14 @@
+{
+  "id": "tires",
+  "version": 1,
+  "routing_description": "Tire pressure warnings, repeated air loss and per-wheel pressure history.",
+  "planner_instructions": "Compare available tire pressure evidence by wheel and unit. The summary provides compact numerical trends, time spans and supporting observation IDs; history provides individual chronological readings when detailed sequence inspection matters. Use the optional wheel filter only when a particular wheel is relevant; otherwise inspect all available wheels. Neither tool interprets pressure suitability. Do not infer the cause of a change or assume unobserved tires match the observed ones. No vehicle-specific target pressures are supplied. Explain missing history or units as limitations.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_tire_pressure_history",
+    "get_tire_pressure_summary"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

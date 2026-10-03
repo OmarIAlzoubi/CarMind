@@ -1,0 +1,19 @@
+{
+  "source_id": "test-only-fictional-example-motors-apex-gt",
+  "manufacturer": "Example Motors",
+  "model": "Apex GT",
+  "model_year": 2025,
+  "market": "FICTIONAL",
+  "market_basis": "TEST-ONLY FICTIONAL source",
+  "variant": "TEST-ONLY FICTIONAL",
+  "language": "en",
+  "document_title": "TEST-ONLY FICTIONAL Apex GT Manual",
+  "document_type": "test_fixture",
+  "revision": null,
+  "pdf_metadata_modified": null,
+  "source_path": "tests/fixtures/manufacturer_manual/manual.pdf",
+  "manifest_path": "tests/fixtures/manufacturer_manual/sections_manifest.json",
+  "page_count": 1,
+  "source_status": "test_only_fictional",
+  "applicability_note": "TEST-ONLY FICTIONAL; never use as production vehicle guidance"
+}

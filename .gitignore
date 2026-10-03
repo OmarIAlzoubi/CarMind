@@ -1,0 +1,56 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Test coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# Secrets and local configuration
+.env
+.env.*
+
+# Logs
+*.log
+
+# Editors
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Local virtual environments (including Conda prefixes)
+.venv/
+venv/
+env/
+.conda/
+
+# Local manufacturer research; never commit manuals or rendered pages
+.research/
+ElantraN/
+
+# Private local ownership databases (including SQLite journals)
+.local/
+.cache/
+*.sqlite3
+*.sqlite3-*
+
+# Local vehicle-specific manufacturer data; keep only the generic template public
+manufacturer_knowledge/*
+!manufacturer_knowledge/_template/
+eval/manual_retrieval_cases.json
+
+# Generated manufacturer indexes/caches
+manufacturer_indexes/
+manufacturer_cache/
+*.manufacturer.sqlite3

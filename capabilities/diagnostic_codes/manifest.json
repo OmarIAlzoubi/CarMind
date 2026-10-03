@@ -1,0 +1,14 @@
+{
+  "id": "diagnostic_codes",
+  "version": 1,
+  "routing_description": "User-reported diagnostic codes, previously recorded codes and recorded active flags.",
+  "planner_instructions": "Retrieve recorded code history and preserve each code, timestamp, source and active flag. Active means marked active in the supplied stored context; it is not a live scan. The tools do not decode DTCs and this pack supplies no real code definitions. Do not invent a code meaning or treat a code as proof of a failed part. Cite the generated record evidence reference and distinguish missing history from a confirmed absence of codes.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_diagnostic_code_history",
+    "get_active_diagnostic_codes"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

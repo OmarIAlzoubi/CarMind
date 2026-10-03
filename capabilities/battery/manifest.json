@@ -1,0 +1,14 @@
+{
+  "id": "battery",
+  "version": 1,
+  "routing_description": "Difficult starting, reported battery weakness and battery voltage during starting events.",
+  "planner_instructions": "Review voltage history and, when operating-state observations exist, the starting summary. That summary pairs voltage with starting-state evidence at matching timestamps. Distinguish starting readings from other operating states and keep source IDs for both. A voltage pattern alone does not establish battery condition or a root cause. Missing starting-state evidence means a starting summary may be unavailable even when voltage history exists.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_battery_voltage_history",
+    "get_starting_voltage_summary"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

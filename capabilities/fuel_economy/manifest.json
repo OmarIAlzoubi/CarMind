@@ -1,0 +1,16 @@
+{
+  "id": "fuel_economy",
+  "version": 1,
+  "routing_description": "Changes in fuel consumption and how trip duration or idling may relate to vehicle usage.",
+  "planner_instructions": "Review fuel consumption over time together with average trip duration and idle-time observations where available. Keep different units separate and cite evidence for each comparison. The usage summary supplies arithmetic facts, not an explanation for increased consumption. Correlated changes do not establish causation. If baseline or recent samples are missing, describe the comparison as incomplete. Do not invent driving conditions or maintenance causes.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_fuel_consumption_history",
+    "get_trip_duration_history",
+    "get_idle_time_history",
+    "get_fuel_usage_summary"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

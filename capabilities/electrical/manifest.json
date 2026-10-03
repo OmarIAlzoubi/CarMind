@@ -1,0 +1,13 @@
+{
+  "id": "electrical",
+  "version": 1,
+  "routing_description": "Accessory behavior, charging observations and general electrical symptoms beyond starting.",
+  "planner_instructions": "Gather charging, accessory and electrical symptom observations without assuming they describe a battery starting problem. Identify which observations are reported symptoms and which are measurements. Preserve timestamps and units when comparing readings. The battery pack is separate; request its coverage later if starting evidence becomes relevant. Missing electrical observations must remain an explicit gap. Do not infer a failed electrical component from a warning alone.",
+  "tool_ids": [
+    "get_vehicle_profile",
+    "get_electrical_observations"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}

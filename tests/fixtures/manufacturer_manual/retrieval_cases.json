@@ -1,0 +1,9 @@
+{
+  "source_id": "test-only-fictional-example-motors-apex-gt",
+  "vehicle": {"make": "Example Motors", "model": "Apex GT", "year": 2025},
+  "cases": [
+    {"topic": "fictional tires", "query": "tire pressure normal load", "expected_pages": [1]},
+    {"topic": "fictional engine oil", "query": "engine oil specification", "expected_pages": [1]},
+    {"topic": "fictional warning", "query": "coolant temperature warning", "expected_pages": [1]}
+  ]
+}

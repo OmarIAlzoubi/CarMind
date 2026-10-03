@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "messages": [
+    {"message_id": "NO_RULE_TRIGGERED", "disposition": "NO_RULE_TRIGGERED", "approved_text": "No configured deterministic rule triggered. This is not a determination that the vehicle is safe to drive."},
+    {"message_id": "SERVICE_REVIEW", "disposition": "SERVICE_REVIEW", "approved_text": "The configured evidence rule calls for a professional service review. The available evidence does not establish driving safety."},
+    {"message_id": "STOP_WHEN_SAFE", "disposition": "STOP_WHEN_SAFE", "approved_text": "Stop when it is safe to do so and seek professional assistance. Do not treat this assessment as permission to continue driving."},
+    {"message_id": "UNDETERMINED", "disposition": "UNDETERMINED", "approved_text": "Safety cannot be determined from the available evidence and configured rules. Do not interpret missing or conflicting information as reassurance."}
+  ]
+}

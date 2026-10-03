@@ -1,0 +1,76 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 4 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 5 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 612 792 ]
+/Parent 2 0 R
+/Contents 6 0 R
+>>
+endobj
+5 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+6 0 obj
+<<
+/Length 571
+>>
+stream
+BT /F1 11 Tf 50 750 Td
+(TEST-ONLY FICTIONAL DOCUMENT - EXAMPLE MOTORS APEX GT 2025) Tj 0 -24 Td
+(TIRE PRESSURE) Tj 0 -24 Td
+(TEST-ONLY FICTIONAL normal load tire pressure is 31 psi for every wheel.) Tj 0 -24 Td
+(ENGINE OIL SPECIFICATION) Tj 0 -24 Td
+(TEST-ONLY FICTIONAL engine oil grade XM-7; oil capacity 4 L.) Tj 0 -24 Td
+(COOLANT TEMPERATURE WARNING) Tj 0 -24 Td
+(TEST-ONLY FICTIONAL warning indicator: stop when safe and consult a professional.) Tj 0 -24 Td
+(MAINTENANCE SCHEDULE) Tj 0 -24 Td
+(TEST-ONLY FICTIONAL inspect tire pressure every 8 weeks.) Tj 0 -24 Td
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000113 00000 n 
+0000000162 00000 n 
+0000000294 00000 n 
+0000000364 00000 n 
+trailer
+<<
+/Size 7
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+986
+%%EOF

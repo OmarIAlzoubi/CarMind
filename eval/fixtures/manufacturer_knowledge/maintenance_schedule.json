@@ -1,0 +1,30 @@
+{
+  "profile": {
+    "manufacturer": "Example Motors",
+    "model": "Apex GT",
+    "model_year": null,
+    "market": "FICTIONAL",
+    "engine_variant": null,
+    "transmission": null,
+    "knowledge_version": "1"
+  },
+  "rules": [
+    {
+      "rule_id": "test-only-fictional-filter-rule",
+      "source_id": "test-only-fictional-benchmark-source",
+      "maintenance_item": "cabin_air_filter",
+      "action_type": "REPLACE",
+      "operating_condition": "NORMAL",
+      "section": "TEST-ONLY FICTIONAL schedule",
+      "page": "TEST-ONLY FICTIONAL page",
+      "trigger": "WHICHEVER_FIRST",
+      "interval_km": 30000,
+      "interval_months": 18,
+      "first_due_km": null,
+      "first_due_months": null,
+      "repeat_km": null,
+      "repeat_months": null
+    }
+  ],
+  "poc_only": true
+}

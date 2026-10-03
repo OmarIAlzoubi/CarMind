@@ -1,0 +1,19 @@
+{
+  "source_id": "REPLACE_WITH_UNIQUE_SOURCE_ID",
+  "manufacturer": "REPLACE_WITH_MANUFACTURER",
+  "model": "REPLACE_WITH_MODEL",
+  "model_year": null,
+  "market": null,
+  "market_basis": "REPLACE_WITH_MARKET_EVIDENCE_OR_UNKNOWN",
+  "variant": "REPLACE_WITH_VARIANT_OR_GENERAL",
+  "language": "REPLACE_WITH_DOCUMENT_LANGUAGE",
+  "document_title": "REPLACE_WITH_EXACT_DOCUMENT_TITLE",
+  "document_type": "owner_manual",
+  "revision": null,
+  "pdf_metadata_modified": null,
+  "source_path": "manufacturer_knowledge/REPLACE_WITH_PRIVATE_SOURCE_PATH/manual.pdf",
+  "manifest_path": "manufacturer_knowledge/REPLACE_WITH_PRIVATE_SOURCE_PATH/sections_manifest.json",
+  "page_count": "REPLACE_WITH_VERIFIED_PAGE_COUNT",
+  "source_status": "unverified",
+  "applicability_note": "REPLACE_WITH_APPLICABILITY_EVIDENCE_OR_LIMITATION"
+}

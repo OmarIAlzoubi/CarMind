@@ -1,0 +1,22 @@
+{
+  "id": "trip_readiness",
+  "version": 1,
+  "routing_description": "Preparing for travel or a long drive and gathering available vehicle and service context.",
+  "planner_instructions": "Gather tire, battery, cooling, service history and deterministic due/upcoming maintenance evidence. Preserve missing categories and unknown applicability. This is not a driving-clearance tool. Never declare the vehicle safe to drive or author safety disposition.",
+  "tool_ids": [
+    "get_battery_voltage_history",
+    "get_coolant_history",
+    "get_due_maintenance_items",
+    "get_maintenance_source_reference",
+    "get_manufacturer_maintenance_rule",
+    "get_manufacturer_maintenance_schedule",
+    "get_service_history",
+    "get_tire_pressure_history",
+    "get_trip_readiness_evidence",
+    "get_upcoming_maintenance_items",
+    "get_vehicle_profile"
+  ],
+  "required_inputs": [
+    "snapshot"
+  ]
+}
