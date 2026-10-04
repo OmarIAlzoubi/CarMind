@@ -514,9 +514,11 @@ class CarMindApp:
             # Existing initial service_history already exposes the same bounded records.
             ownership.pop("recent_services")
             trace.ownership_context_characters = len(encode(ownership))
+            manual_index = (self.manual_index.for_vehicle(vehicle_id)
+                            if hasattr(self.manual_index, "for_vehicle") else self.manual_index)
             run = run_assessment(public, self.provider, context, request, mode=self.mode, router=self.router,
                                  ownership_context=ownership, previous_stop=prior_stop,
-                                 max_model_calls=self.max_model_calls, manual_index=self.manual_index,
+                                 max_model_calls=self.max_model_calls, manual_index=manual_index,
                                  manual_market=vehicle.market)
             trace.routing, trace.planner = run.routing, run.planner.trace
             validated, proposal = run.planner.result, run.planner.proposed_command

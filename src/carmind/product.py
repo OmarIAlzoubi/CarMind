@@ -138,6 +138,30 @@ class ProductService:
         self.display_timezone = ZoneInfo(display_timezone)
         self.activity_logger = activity_logger
 
+    def _manual_index_for(self, vehicle_id):
+        configured = self.app.manual_index
+        return configured.for_vehicle(vehicle_id) if hasattr(configured, "for_vehicle") else configured
+
+    def manual_documents(self, channel, external_user_id, vehicle_id, *, now):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        self.store.vehicle(bound["owner_id"], vehicle_id, now)
+        registry = self.app.manual_index
+        return tuple({key: item[key] for key in ("source_id", "document_title", "document_type",
+                      "status", "applicability", "page_count")}
+                     for item in registry.list(vehicle_id)) if hasattr(registry, "list") else ()
+
+    def add_manual_document(self, channel, external_user_id, vehicle_id, path, *, metadata=None, now):
+        from carmind.manufacturer_ingestion import ManufacturerIngestionService, VehicleManualRegistry
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        if not isinstance(self.app.manual_index, VehicleManualRegistry):
+            raise ValueError("Local manufacturer onboarding is unavailable")
+        return ManufacturerIngestionService(self.store, self.app.manual_index).ingest(
+            bound["owner_id"], vehicle_id, path, metadata=metadata, now=now)
+
     def bind_existing(self, channel, external_user_id, owner_id, session_id):
         """Trusted setup/linking operation; never exposed as a public API route."""
         existing = self.store.binding(channel, external_user_id)
@@ -273,6 +297,7 @@ class ProductService:
                 if fact.get("manual_chunk"):
                     cards[ref] = {"evidence_id": ref, "source_id": fact["source_id"],
                                   "title": fact["document_title"],
+                                  "document_type": fact.get("document_type"),
                                   "manufacturer": fact["manufacturer"],
                                   "market": fact.get("source_market"),
                                   "section": fact["section"], "heading": fact["heading"],
@@ -467,7 +492,7 @@ class ProductService:
                                      _label(vehicle) if vehicle else None, safety_notice=notice)
             elif vehicle is None:
                 reply = self._onboard(owner_id, session_id, message, now, locale)
-            elif self.app.manual_index is None and _asks_for_documentation(inbound.text):
+            elif self._manual_index_for(vehicle.profile.vehicle_id) is None and _asks_for_documentation(inbound.text):
                 text = _copy(locale,
                     "I don't have manufacturer documentation configured for your car. I can still help with your symptoms and saved car history, but I won't guess a manual specification.",
                     "ما عندي دليل الشركة المصنعة مضاف لسيارتك. أقدر أساعدك بالأعراض وسجل سيارتك، لكن ما راح أخمّن مواصفة من الدليل.")
@@ -500,7 +525,7 @@ class ProductService:
             return {"vehicle": None,
                     "vehicles": [{"id": v.profile.vehicle_id, "label": _label(v)}
                                  for v in self.store.vehicles(owner_id, now)],
-                    "manufacturer": {"status": "unverified"}}
+                    "manufacturer": {"status": "unverified"}, "documents": []}
         vehicle = self.store.vehicle(owner_id, target, now)
         events = self.store.odometer_events(target)
         latest_event = max((e for e in events if datetime.fromisoformat(e["occurred_at"]) <= now),
@@ -543,6 +568,7 @@ class ProductService:
             "manufacturer": {"status": ("test_only" if request.pack.poc_only else "verified") if request else "unverified",
                              "sources": [{"id": s.source_id, "title": s.document_title,
                                           "market": s.market} for s in request.pack.sources] if request else []},
+            "documents": list(self.manual_documents(channel, external_user_id, target, now=now)),
         }
 
     def select_vehicle(self, channel, external_user_id, vehicle_id, *, now):

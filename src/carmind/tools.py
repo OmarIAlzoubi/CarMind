@@ -22,6 +22,12 @@ ELECTRICAL_NAMES = ("charging_voltage", "electrical_warning", "accessory_voltage
 FUEL_NAMES = ("fuel_consumption", "average_trip_duration", "idle_time_ratio")
 
 
+def _manual_source_payload(source):
+    return {key: getattr(source, key) for key in (
+        "source_id", "document_title", "document_type", "manufacturer", "model",
+        "model_year", "market", "source_status")}
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     tool_id: str
@@ -51,8 +57,8 @@ class ToolDefinition:
 
 
 _DEFINITIONS = (
-    ToolDefinition("search_manufacturer_manual", "Search registered owner-manual passages for this vehicle and return page-grounded excerpts.",
-                   "One source with physical and printed page references; applicability is explicit and may be unverified.",
+    ToolDefinition("search_manufacturer_manual", "Search registered manufacturer documents for this vehicle and return page-grounded excerpts.",
+                   "Each hit retains its document source and physical page; applicability may be unverified.",
                    ("query", "top_k")),
     ToolDefinition("get_manufacturer_maintenance_schedule", "Read the supplied manufacturer schedule with exact applicability.", "Rule and document provenance; unknown model year cannot match a vehicle."),
     ToolDefinition("get_manufacturer_maintenance_rule", "Read manufacturer rules, optionally by exact ID.", "Manufacturer intervals, condition, action and page references.", ("rule_id",)),
@@ -221,22 +227,19 @@ def execute_tool(
             if manual_index is None:
                 return failure("unavailable_manufacturer_knowledge")
             from carmind.manufacturer_manual import ManualIndex
-            if not isinstance(manual_index, ManualIndex):
+            from carmind.manufacturer_ingestion import VehicleManualIndex
+            if not isinstance(manual_index, (ManualIndex, VehicleManualIndex)):
                 return failure("unavailable_manufacturer_knowledge")
             hits = manual_index.search(arguments["query"], snapshot.profile,
                                        market=manual_market, top_k=arguments.get("top_k", 3))
             if not hits:
                 return failure("unavailable_manufacturer_knowledge")
-            source = manual_index.source
+            source_map = ({manual_index.source.source_id: manual_index.source}
+                          if isinstance(manual_index, ManualIndex) else manual_index.sources)
+            sources = [_manual_source_payload(source_map[source_id])
+                       for source_id in dict.fromkeys(hit["source_id"] for hit in hits)]
             return ToolResult(tool_id, True, tuple(hit["evidence_id"] for hit in hits),
-                              {"source": {"source_id": source.source_id,
-                                          "document_title": source.document_title,
-                                          "document_type": source.document_type,
-                                          "manufacturer": source.manufacturer,
-                                          "model": source.model,
-                                          "model_year": source.model_year,
-                                          "market": source.market,
-                                          "source_status": source.source_status},
+                              {"source": sources[0], "sources": sources,
                                "hits": list(hits)})
         if tool_id in MAINTENANCE_TOOLS:
             return _maintenance_tool(tool_id, arguments, snapshot, vehicle_context, maintenance_request)

@@ -5,7 +5,7 @@ against the manifest but never indexed as independent evidence sources.
 """
 
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field
 from hashlib import sha256
 import json
 import os
@@ -67,6 +67,8 @@ class ManualSource:
     page_count: int
     source_status: str
     applicability_note: str
+    ownership_vehicle_id: str | None = None
+    applicability_status: str | None = None
     registry_path: Path | None = field(default=None, init=False, compare=False, repr=False)
 
     def __post_init__(self):
@@ -81,6 +83,9 @@ class ManualSource:
             raise ValueError("Invalid source model year")
         if type(self.page_count) is not int or self.page_count < 1:
             raise ValueError("Invalid source page count")
+        for optional in (self.ownership_vehicle_id, self.applicability_status):
+            if optional is not None and (not isinstance(optional, str) or not optional.strip()):
+                raise ValueError("Invalid source association")
 
     def path(self, relative):
         candidate = (ROOT / relative).resolve()
@@ -120,8 +125,10 @@ def resolve_source_file(path=None):
 def load_source(path=None):
     registry_path = resolve_source_file(path)
     data = json.loads(registry_path.read_text(encoding="utf-8"))
-    required = {name for name, definition in ManualSource.__dataclass_fields__.items() if definition.init}
-    if not isinstance(data, dict) or set(data) != required:
+    fields = {name: definition for name, definition in ManualSource.__dataclass_fields__.items()
+              if definition.init}
+    required = {name for name, definition in fields.items() if definition.default is MISSING}
+    if not isinstance(data, dict) or not required <= set(data) or not set(data) <= set(fields):
         raise ValueError("Invalid manual source registry")
     source = ManualSource(**data)
     object.__setattr__(source, "registry_path", registry_path)
@@ -379,6 +386,7 @@ class ManualIndex:
             result.append({"evidence_id": row["id"], "manual_chunk": True,
                            "source_id": self.source.source_id,
                            "document_title": self.source.document_title,
+                           "document_type": self.source.document_type,
                            "manufacturer": self.source.manufacturer,
                            "source_market": self.source.market,
                            "section": row["section"],

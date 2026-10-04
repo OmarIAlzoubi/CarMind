@@ -1,15 +1,20 @@
 """Small localhost product UI and JSON API; no production authentication claim."""
 
 import argparse
+import base64
+import binascii
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from time import perf_counter
 from urllib.parse import urlsplit
 
 from carmind.composition import compose_app
 from carmind.manufacturer_manual import DEFAULT_INDEX, open_optional_index
+from carmind.manufacturer_ingestion import MAX_PDF_BYTES, registry_for_database
 from carmind.product import InboundMessage, ProductService
 from carmind.provider_config import require_live_config
 from carmind.storage import OwnershipStore
@@ -39,7 +44,7 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if path not in ("/api/overview", "/api/vehicles", "/api/services", "/api/reminders"):
+            if path not in ("/api/overview", "/api/vehicles", "/api/services", "/api/reminders", "/api/manual/status"):
                 self._json(404, {"error": "Not found"})
                 return
             try:
@@ -50,6 +55,8 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                     data = overview.get("services", [])
                 elif path == "/api/reminders":
                     data = overview.get("reminders", [])
+                elif path == "/api/manual/status":
+                    data = {"documents": overview.get("documents", [])}
                 else:
                     data = {**overview, "ui_mode": "live" if live else "offline"}
                 self._json(200, data)
@@ -58,18 +65,51 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ("/api/chat", "/api/confirm", "/api/vehicle/select", "/api/proposal/cancel"):
+            if path not in ("/api/chat", "/api/confirm", "/api/vehicle/select", "/api/proposal/cancel", "/api/manual/upload"):
                 self._json(404, {"error": "Not found"})
                 return
             try:
                 started = perf_counter()
                 size = int(self.headers.get("Content-Length", "0"))
-                if size < 2 or size > 8192 or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                limit = MAX_PDF_BYTES * 4 // 3 + 4096 if path == "/api/manual/upload" else 8192
+                if size < 2 or size > limit or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                     raise ValueError("Invalid request")
                 data = json.loads(self.rfile.read(size))
                 if not isinstance(data, dict):
                     raise ValueError("Invalid request")
                 now = datetime.now(timezone.utc)
+                if path == "/api/manual/upload":
+                    filename = data.get("filename")
+                    encoded = data.get("content_base64")
+                    metadata = data.get("metadata", {})
+                    if (not isinstance(filename, str) or not filename or len(filename) > 120
+                            or "/" in filename or "\\" in filename or Path(filename).suffix.casefold() != ".pdf"
+                            or not isinstance(encoded, str) or not isinstance(metadata, dict)):
+                        raise ValueError("Invalid PDF upload")
+                    try:
+                        content = base64.b64decode(encoded, validate=True)
+                    except (ValueError, binascii.Error):
+                        raise ValueError("Invalid PDF encoding") from None
+                    if not 0 < len(content) <= MAX_PDF_BYTES:
+                        raise ValueError("PDF upload exceeds size limit")
+                    metadata = dict(metadata)
+                    metadata.setdefault("document_title", Path(filename).stem)
+                    overview = service.overview("web", web_identity, now=now)
+                    vehicle = overview.get("vehicle")
+                    if vehicle is None or data.get("vehicle_id") != vehicle["id"]:
+                        raise ValueError("Select the vehicle before adding a document")
+                    with NamedTemporaryFile(mode="wb", suffix=".pdf", delete=False) as upload:
+                        upload.write(content)
+                        upload_path = Path(upload.name)
+                    try:
+                        result = service.add_manual_document("web", web_identity, vehicle["id"],
+                                                             upload_path, metadata=metadata, now=now)
+                    finally:
+                        upload_path.unlink(missing_ok=True)
+                    self._json(201, {"source_id": result.source_id, "document_title": result.document_title,
+                                     "document_type": result.document_type.value, "status": result.status.value,
+                                     "applicability": result.applicability.value, "page_count": result.page_count})
+                    return
                 if path == "/api/proposal/cancel":
                     service.cancel_proposal("web", web_identity, data["proposal_id"])
                     self._json(200, {"status": "cancelled"})
@@ -125,12 +165,13 @@ def main(argv=None):
             parser.error(str(exc))
     elif args.confirm_live_api_use:
         parser.error("--confirm-live-api-use requires --live")
-    try:
-        manual_index = open_optional_index(args.manual_index, source_file=args.manual_source)
-    except (FileNotFoundError, ValueError) as exc:
-        parser.error(str(exc))
-    if manual_index is None:
-        print("[RAG] local manufacturer documentation unavailable; other features remain available")
+    if args.manual_source is not None or os.environ.get("CARMIND_MANUAL_SOURCE"):
+        try:
+            manual_index = open_optional_index(args.manual_index, source_file=args.manual_source)
+        except (FileNotFoundError, ValueError) as exc:
+            parser.error(str(exc))
+    else:
+        manual_index = registry_for_database(args.db)
     store = OwnershipStore(args.db)
     try:
         service = ProductService(compose_app(store, live=args.live,

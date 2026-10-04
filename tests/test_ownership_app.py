@@ -28,6 +28,36 @@ NOW = datetime(2026, 1, 6, 12, tzinfo=timezone.utc)
 START = NOW - timedelta(days=5)
 
 
+class OwnershipStorePathTests(unittest.TestCase):
+    def test_missing_nested_database_parent_is_created(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "missing" / "nested" / "owner.sqlite3"
+            self.assertFalse(path.parent.exists())
+            store = OwnershipStore(path)
+            try:
+                self.assertTrue(path.is_file())
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            finally:
+                store.close()
+
+    def test_memory_database_does_not_create_parent(self):
+        with patch.object(Path, "mkdir", side_effect=AssertionError("No directory should be created")):
+            store = OwnershipStore(":memory:")
+            try:
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            finally:
+                store.close()
+
+    def test_sqlite_uri_does_not_create_parent(self):
+        with patch.object(Path, "mkdir", side_effect=AssertionError("No directory should be created")):
+            try:
+                store = OwnershipStore("file::memory:?cache=shared")
+            except sqlite3.Error:
+                pass  # The existing SQLite URI behavior depends on its connection settings.
+            else:
+                store.close()
+
+
 class OwnershipAppTests(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()

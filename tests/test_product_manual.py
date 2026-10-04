@@ -14,6 +14,7 @@ from carmind.capabilities import CapabilityRegistry
 from carmind.composition import compose_app
 from carmind.contracts import VehicleProfile
 from carmind.manufacturer_manual import ManualIndex, build_index, open_optional_index
+from carmind.manufacturer_ingestion import VehicleManualRegistry
 from carmind.ownership_demo import command_turn, empty_final
 from carmind.planner_provider import FakePlannerProvider
 from carmind.planner_provider import ProviderDiagnostic, ProviderFailure
@@ -237,7 +238,7 @@ class CleanCloneManualTests(unittest.TestCase):
                  patch("carmind.web.compose_app", wraps=compose_app) as composed:
                 self.assertEqual(web_main(["--db", str(Path(temp) / "web.sqlite3")]), 0)
                 server.assert_called_once()
-                self.assertIsNone(composed.call_args.kwargs["manual_index"])
+                self.assertIsInstance(composed.call_args.kwargs["manual_index"], VehicleManualRegistry)
             store = OwnershipStore(Path(temp) / "owner.sqlite3")
             try:
                 onboarding = {"type": "vehicle_proposal", "owner_quote": "My car is an Example Motors Apex GT 2025",
@@ -293,7 +294,7 @@ class CleanCloneManualTests(unittest.TestCase):
                  patch("carmind.web.compose_app", side_effect=RuntimeError("provider composition reached")) as compose:
                 with self.assertRaisesRegex(RuntimeError, "provider composition reached"):
                     web_main(["--live", "--confirm-live-api-use", "--db", db])
-                self.assertIsNone(compose.call_args.kwargs["manual_index"])
+                self.assertIsNone(compose.call_args.kwargs["manual_index"].for_vehicle("unregistered"))
             with patch("carmind.whatsapp_demo.require_live_config"), \
                  patch("carmind.whatsapp_demo.compose_app", side_effect=RuntimeError("provider composition reached")) as compose:
                 with self.assertRaisesRegex(RuntimeError, "provider composition reached"):

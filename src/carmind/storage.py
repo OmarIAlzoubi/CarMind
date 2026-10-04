@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date, datetime
 import json
+from pathlib import Path
 import sqlite3
 
 from carmind.contracts import MaintenanceRecord, VehicleContext, VehicleProfile
@@ -93,6 +94,12 @@ class OwnershipStore:
     """One local connection. Callers own transaction boundaries, including refresh."""
 
     def __init__(self, path):
+        if isinstance(path, (str, Path)):
+            name = str(path)
+            if name and name != ":memory:" and not name.lower().startswith("file:") and "://" not in name:
+                parent = Path(name).parent
+                if parent != Path("."):
+                    parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys = ON")
@@ -137,6 +144,15 @@ class OwnershipStore:
                                  reading[0] if reading else None, row["engine"], row["vin"])
         return OwnedVehicle(profile, owner_id, row["trim"], row["market"], row["nickname"], row["odometer_unit"],
                             datetime.fromisoformat(row["created_at"]), datetime.fromisoformat(row["updated_at"]))
+
+    def owner_for_vehicle(self, vehicle_id):
+        row = self.db.execute("SELECT owner_id FROM vehicles WHERE id=?", (vehicle_id,)).fetchone()
+        if row is None:
+            raise ValueError("Vehicle is not registered")
+        return row["owner_id"]
+
+    def all_vehicle_ids(self):
+        return tuple(row["id"] for row in self.db.execute("SELECT id FROM vehicles ORDER BY id"))
 
     def create_session(self, session_id, owner_id, now, vehicle_id=None):
         if vehicle_id is not None:

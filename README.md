@@ -252,6 +252,39 @@ The intended workflow is:
 Local manufacturer documents and generated indexes should remain outside Git.
 
 ---
+## Add Your Vehicle Manual
+
+CarMind can onboard manufacturer documents directly from the local Web interface or CLI.
+
+### Web
+
+1. Add your vehicle to CarMind.
+2. Open **My Car → Manufacturer documents**.
+3. Choose a manufacturer PDF.
+4. Select **Add PDF**.
+5. CarMind stores the document locally, extracts readable pages, builds its local index, and reports indexing and applicability status.
+
+Multiple documents can be associated with the same vehicle, including:
+
+- Owner's Manual
+- Maintenance Schedule
+- Warranty / Service Booklet
+- Vehicle specifications
+- Other manufacturer documentation
+
+Scanned PDFs without extractable text are reported as unavailable rather than silently treated as searchable.
+
+### CLI
+
+Use the same database as your CarMind instance and the ID of an existing vehicle:
+
+```bash
+PYTHONPATH=src python -m carmind manual \
+  --db .local/owner.sqlite3 \
+  add \
+  --vehicle-id YOUR_VEHICLE_ID \
+  --file /path/to/manual.pdf
+---
 
 ## Running the Offline Demo
 
