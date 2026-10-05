@@ -13,6 +13,7 @@ from carmind.contracts import SafetyDisposition, UserMessage
 from carmind.evidence import FrozenEvidenceSnapshot
 from carmind.ownership import CommandType, utc
 from carmind.planner_provider import ProviderFailure
+from carmind.proactive import NotificationPreferences, notification_text
 from carmind.storage import encode
 
 
@@ -100,6 +101,7 @@ class InboundMessage:
     locale: str | None = None
     confirmation_id: str | None = None
     snapshot: FrozenEvidenceSnapshot | None = None  # trusted offline evidence only
+    related_event_id: str | None = None
 
     def __post_init__(self):
         for value in (self.channel, self.external_user_id, self.external_message_id):
@@ -114,6 +116,10 @@ class InboundMessage:
                                                  or not self.confirmation_id.strip()
                                                  or len(self.confirmation_id) > 128):
             raise ValueError("Invalid confirmation ID.")
+        if self.related_event_id is not None and (not isinstance(self.related_event_id, str)
+                                                  or not self.related_event_id.strip()
+                                                  or len(self.related_event_id) > 128):
+            raise ValueError("Invalid related reminder ID.")
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,43 @@ class ProductService:
     def _manual_index_for(self, vehicle_id):
         configured = self.app.manual_index
         return configured.for_vehicle(vehicle_id) if hasattr(configured, "for_vehicle") else configured
+
+    def notification_preferences(self, channel, external_user_id):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        return asdict(self.app.proactive.preferences(bound["owner_id"]))
+
+    def update_notification_preferences(self, channel, external_user_id, changes, *, now):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound or not isinstance(changes, dict) or set(changes) - set(NotificationPreferences.__dataclass_fields__):
+            raise ValueError("Invalid notification preferences")
+        values = {**self.notification_preferences(channel, external_user_id), **changes}
+        return asdict(self.app.proactive.set_preferences(bound["owner_id"], NotificationPreferences(**values), now=now))
+
+    def acknowledge_proactive(self, channel, external_user_id, vehicle_id, event_id, *, now):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        self.app.proactive.acknowledge(bound["owner_id"], vehicle_id, event_id, now=now)
+
+    def explain_proactive(self, channel, external_user_id, vehicle_id, event_id, *, now, locale="en"):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        return self.app.proactive.explain(bound["owner_id"], vehicle_id, event_id, now=now,
+                                          language=locale)
+
+    def proactive_events(self, channel, external_user_id, vehicle_id, *, now):
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity")
+        events = self.app.proactive.events(bound["owner_id"], vehicle_id, now=now)
+        return [{"id": e.event_id, "type": e.event_type.value, "status": e.status.value,
+                 "item": e.maintenance_item, "source_type": e.source_type,
+                 "due_km": e.due_km, "due_date": e.due_date.isoformat() if e.due_date else None,
+                 "text_en": notification_text(e, "en"), "text_ar": notification_text(e, "ar")}
+                for e in events[:10]]
 
     def manual_documents(self, channel, external_user_id, vehicle_id, *, now):
         bound = self.store.binding(channel, external_user_id)
@@ -478,6 +521,10 @@ class ProductService:
             reply = self._productize(result, owner_id, session_id, now, locale)
         else:
             vehicle = self._vehicle(owner_id, session_id, now)
+            related_event_id = inbound.related_event_id
+            if related_event_id is None and inbound.channel == "whatsapp" and vehicle is not None:
+                related_event_id = self.store.latest_sent_event_id(owner_id, vehicle.profile.vehicle_id,
+                                                                     now - timedelta(days=7))
             if inbound.text.strip().casefold().rstrip("!؟?.") in GREETINGS:
                 if vehicle:
                     greeting = _copy(locale, f"Hi! I have {_label(vehicle)} as your car. What would you like to know?",
@@ -492,6 +539,17 @@ class ProductService:
                                      _label(vehicle) if vehicle else None, safety_notice=notice)
             elif vehicle is None:
                 reply = self._onboard(owner_id, session_id, message, now, locale)
+            elif related_event_id and inbound.text.strip().casefold().rstrip("!؟?.") in {
+                    "why this reminder", "why are you reminding me", "ليش التذكير", "ليش تذكرني"}:
+                try:
+                    explanation = self.app.proactive.explain(owner_id, vehicle.profile.vehicle_id,
+                                                               related_event_id, now=now, language=locale)
+                except ValueError:
+                    explanation = _copy(locale, "That reminder is no longer available.", "التذكير هذا ما عاد متاح.")
+                stop = self.app.unresolved_safety(owner_id, vehicle.profile.vehicle_id, now=now)
+                notice = _stop_notice(locale) if stop else None
+                reply = ProductReply(explanation + ("\n\n" + notice if notice else ""), "complete",
+                                     vehicle.profile.vehicle_id, _label(vehicle), safety_notice=notice)
             elif self._manual_index_for(vehicle.profile.vehicle_id) is None and _asks_for_documentation(inbound.text):
                 text = _copy(locale,
                     "I don't have manufacturer documentation configured for your car. I can still help with your symptoms and saved car history, but I won't guess a manual specification.",
@@ -502,7 +560,7 @@ class ProductService:
                                      vehicle.profile.vehicle_id, _label(vehicle), safety_notice=notice)
             else:
                 result = self.app.handle_message(owner_id, session_id, message, now=now,
-                                                 snapshot=inbound.snapshot)
+                                                 snapshot=inbound.snapshot, related_event_id=related_event_id)
                 reply = self._productize(result, owner_id, session_id, now, locale)
         self._save_reply(inbound, reply)
         return reply
@@ -525,7 +583,8 @@ class ProductService:
             return {"vehicle": None,
                     "vehicles": [{"id": v.profile.vehicle_id, "label": _label(v)}
                                  for v in self.store.vehicles(owner_id, now)],
-                    "manufacturer": {"status": "unverified"}, "documents": []}
+                    "manufacturer": {"status": "unverified"}, "documents": [],
+                    "needs_attention": [], "notification_preferences": self.notification_preferences(channel, external_user_id)}
         vehicle = self.store.vehicle(owner_id, target, now)
         events = self.store.odometer_events(target)
         latest_event = max((e for e in events if datetime.fromisoformat(e["occurred_at"]) <= now),
@@ -569,6 +628,8 @@ class ProductService:
                              "sources": [{"id": s.source_id, "title": s.document_title,
                                           "market": s.market} for s in request.pack.sources] if request else []},
             "documents": list(self.manual_documents(channel, external_user_id, target, now=now)),
+            "needs_attention": self.proactive_events(channel, external_user_id, target, now=now),
+            "notification_preferences": self.notification_preferences(channel, external_user_id),
         }
 
     def select_vehicle(self, channel, external_user_id, vehicle_id, *, now):

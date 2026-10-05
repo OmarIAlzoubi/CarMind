@@ -84,6 +84,40 @@ CREATE TABLE vehicle_drafts (
 PRAGMA user_version = 2;
 """
 
+MIGRATION_V3 = """
+CREATE TABLE notification_preferences (
+ owner_id TEXT PRIMARY KEY REFERENCES owners(id), enabled INTEGER NOT NULL DEFAULT 0,
+ preferred_channel TEXT NOT NULL DEFAULT 'web', timezone TEXT NOT NULL DEFAULT 'UTC',
+ language TEXT NOT NULL DEFAULT 'en', quiet_enabled INTEGER NOT NULL DEFAULT 1,
+ quiet_start TEXT NOT NULL DEFAULT '22:00', quiet_end TEXT NOT NULL DEFAULT '08:00',
+ odometer_followups_enabled INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
+CREATE TABLE owner_reminders (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id),
+ vehicle_id TEXT NOT NULL REFERENCES vehicles(id), maintenance_item TEXT NOT NULL,
+ due_km REAL, due_date TEXT, created_at TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('ACTIVE','RESOLVED','CANCELLED')),
+ resolved_by_service_id TEXT);
+CREATE INDEX owner_reminders_vehicle ON owner_reminders(vehicle_id,status);
+CREATE TABLE proactive_events (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id),
+ vehicle_id TEXT NOT NULL REFERENCES vehicles(id), event_type TEXT NOT NULL,
+ source_type TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('OPEN','ACKNOWLEDGED','RESOLVED')),
+ priority TEXT NOT NULL, maintenance_item TEXT, source_id TEXT, rule_id TEXT,
+ source_page TEXT, due_km REAL, due_date TEXT, current_mileage REAL,
+ reason TEXT NOT NULL, evidence TEXT NOT NULL, dedupe_key TEXT NOT NULL UNIQUE,
+ created_at TEXT NOT NULL, effective_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX proactive_events_vehicle ON proactive_events(vehicle_id,status);
+CREATE TABLE notification_outbox (
+ id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES proactive_events(id),
+ owner_id TEXT NOT NULL REFERENCES owners(id), vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+ channel TEXT NOT NULL, event_type TEXT NOT NULL, created_at TEXT NOT NULL,
+ scheduled_for TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('PENDING','DEFERRED','SENT','FAILED','CANCELLED')),
+ attempt_count INTEGER NOT NULL DEFAULT 0, last_attempt_at TEXT,
+ sequence INTEGER NOT NULL, UNIQUE(event_id,event_type,sequence));
+CREATE INDEX notification_outbox_due ON notification_outbox(status,scheduled_for);
+PRAGMA user_version = 3;
+"""
+
 
 def encode(value) -> str:
     return json.dumps(value, default=lambda x: x.isoformat() if isinstance(x, (date, datetime)) else x.value,
@@ -108,9 +142,11 @@ class OwnershipStore:
             self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
         elif version == 1:
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V2 + "\nCOMMIT;")
-        elif version != 2:
+        elif version not in (2, 3):
             self.db.close()
             raise ValueError("Unsupported ownership database version.")
+        if version in (0, 1, 2):
+            self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V3 + "\nCOMMIT;")
 
     def close(self):
         self.db.close()
@@ -338,3 +374,111 @@ class OwnershipStore:
             "SELECT id FROM vehicle_drafts WHERE session_id=? AND state='PENDING' AND expires_at>=?",
             (session_id, stamp))]
         return tuple(commands + drafts)
+
+    def notification_preferences(self, owner_id):
+        row = self.db.execute("SELECT * FROM notification_preferences WHERE owner_id=?", (owner_id,)).fetchone()
+        return dict(row) if row else None
+
+    def save_notification_preferences(self, owner_id, values, now):
+        self.db.execute("""INSERT INTO notification_preferences VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(owner_id) DO UPDATE SET enabled=excluded.enabled,
+            preferred_channel=excluded.preferred_channel,timezone=excluded.timezone,
+            language=excluded.language,quiet_enabled=excluded.quiet_enabled,
+            quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,
+            odometer_followups_enabled=excluded.odometer_followups_enabled,updated_at=excluded.updated_at""",
+            (owner_id, int(values["enabled"]), values["preferred_channel"], values["timezone"],
+             values["language"], int(values["quiet_enabled"]), values["quiet_start"],
+             values["quiet_end"], int(values["odometer_followups_enabled"]), utc(now).isoformat()))
+
+    def save_owner_reminder(self, reminder_id, owner_id, vehicle_id, item, due_km, due_date, now):
+        self.db.execute("INSERT INTO owner_reminders VALUES (?,?,?,?,?,?,?,?,?)",
+                        (reminder_id, owner_id, vehicle_id, item, due_km,
+                         due_date.isoformat() if due_date else None, utc(now).isoformat(), "ACTIVE", None))
+
+    def owner_reminders(self, owner_id, vehicle_id):
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM owner_reminders WHERE owner_id=? AND vehicle_id=? AND status!='CANCELLED' ORDER BY id",
+            (owner_id, vehicle_id))]
+
+    def set_owner_reminder_resolution(self, reminder_id, service_id):
+        self.db.execute("UPDATE owner_reminders SET status=?,resolved_by_service_id=? WHERE id=?",
+                        ("RESOLVED" if service_id else "ACTIVE", service_id, reminder_id))
+
+    def proactive_events(self, *, owner_id=None, vehicle_id=None):
+        clauses, args = [], []
+        if owner_id is not None:
+            clauses.append("owner_id=?")
+            args.append(owner_id)
+        if vehicle_id is not None:
+            clauses.append("vehicle_id=?")
+            args.append(vehicle_id)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        return [{**dict(row), "evidence": json.loads(row["evidence"])} for row in self.db.execute(
+            "SELECT * FROM proactive_events" + where + " ORDER BY created_at,id", args)]
+
+    def proactive_event(self, event_id, owner_id, vehicle_id):
+        row = self.db.execute("SELECT * FROM proactive_events WHERE id=? AND owner_id=? AND vehicle_id=?",
+                              (event_id, owner_id, vehicle_id)).fetchone()
+        return {**dict(row), "evidence": json.loads(row["evidence"])} if row else None
+
+    def save_proactive_event(self, event):
+        self.db.execute("""INSERT INTO proactive_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET event_type=excluded.event_type,status=excluded.status,
+            priority=excluded.priority,current_mileage=excluded.current_mileage,
+            reason=excluded.reason,evidence=excluded.evidence,effective_at=excluded.effective_at,
+            updated_at=excluded.updated_at""",
+            (event["id"], event["owner_id"], event["vehicle_id"], event["event_type"],
+             event["source_type"], event["status"], event["priority"], event.get("maintenance_item"),
+             event.get("source_id"), event.get("rule_id"), event.get("source_page"),
+             event.get("due_km"), event.get("due_date"), event.get("current_mileage"),
+             event["reason"], encode(event["evidence"]), event["dedupe_key"], event["created_at"],
+             event["effective_at"], event["updated_at"]))
+
+    def set_proactive_event_status(self, event_id, status, now):
+        self.db.execute("UPDATE proactive_events SET status=?,updated_at=? WHERE id=?",
+                        (status, utc(now).isoformat(), event_id))
+
+    def notifications(self, *, owner_id=None, vehicle_id=None, event_id=None, statuses=None):
+        clauses, args = [], []
+        if owner_id is not None:
+            clauses.append("owner_id=?")
+            args.append(owner_id)
+        if vehicle_id is not None:
+            clauses.append("vehicle_id=?")
+            args.append(vehicle_id)
+        if event_id is not None:
+            clauses.append("event_id=?")
+            args.append(event_id)
+        if statuses:
+            clauses.append("status IN (" + ",".join("?" for _ in statuses) + ")")
+            args.extend(statuses)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM notification_outbox" + where + " ORDER BY created_at,id", args)]
+
+    def save_notification(self, notification):
+        self.db.execute("""INSERT INTO notification_outbox
+            (id,event_id,owner_id,vehicle_id,channel,event_type,created_at,scheduled_for,status,attempt_count,last_attempt_at,sequence)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (notification["id"], notification["event_id"], notification["owner_id"],
+             notification["vehicle_id"], notification["channel"], notification["event_type"],
+             notification["created_at"], notification["scheduled_for"], notification["status"],
+             notification["attempt_count"], notification.get("last_attempt_at"), notification["sequence"]))
+
+    def set_notification_status(self, notification_id, status, *, scheduled_for=None, attempted_at=None):
+        self.db.execute("""UPDATE notification_outbox SET status=?,scheduled_for=COALESCE(?,scheduled_for),
+            attempt_count=attempt_count+?,last_attempt_at=COALESCE(?,last_attempt_at) WHERE id=?""",
+            (status, scheduled_for, 1 if attempted_at else 0, attempted_at, notification_id))
+
+    def latest_sent_event_id(self, owner_id, vehicle_id, since):
+        row = self.db.execute("""SELECT n.event_id FROM notification_outbox n
+            JOIN proactive_events e ON e.id=n.event_id WHERE n.owner_id=? AND n.vehicle_id=?
+            AND n.status='SENT' AND n.last_attempt_at>=? AND e.status!='RESOLVED'
+            ORDER BY n.last_attempt_at DESC,n.id DESC LIMIT 1""",
+            (owner_id, vehicle_id, utc(since).isoformat())).fetchone()
+        return row[0] if row else None
+
+    def channel_binding_for_owner(self, owner_id, channel):
+        row = self.db.execute("SELECT external_user_id FROM channel_bindings WHERE owner_id=? AND channel=? ORDER BY external_user_id LIMIT 1",
+                              (owner_id, channel)).fetchone()
+        return row[0] if row else None

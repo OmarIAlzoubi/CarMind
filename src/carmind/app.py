@@ -15,6 +15,7 @@ from carmind.maintenance import reminder_events
 from carmind.manufacturer_knowledge import VehicleKnowledgeProfile
 from carmind.ownership import (CommandProposal, CommandType, MutationResult, OwnershipContext,
                                OwnershipCommand, OdometerConflict, StaleProposal, distance_km, identifier, utc)
+from carmind.proactive import ProactiveService
 from carmind.response import render_user_response
 from carmind.routing import ExecutionMode, run_assessment
 from carmind.safety import SafetyDecision, evaluate_safety, retain_unresolved_stop
@@ -77,6 +78,11 @@ class CarMindApp:
         self.allow_test_schedules = allow_test_schedules
         self.max_model_calls = max_model_calls
         self.manual_index = manual_index
+        self.proactive = ProactiveService(self)
+
+    def evaluate_proactive_state(self, *, now, owner_id=None, vehicle_id=None):
+        """Explicit scheduler/operator entry point; it never sends messages."""
+        return self.proactive.run(now=now, owner_id=owner_id, vehicle_id=vehicle_id)
 
     def create_owner(self, *, now, owner_id=None):
         owner_id = identifier(owner_id or str(uuid4()))
@@ -255,7 +261,7 @@ class CarMindApp:
         self._vehicle_at(owner_id, vehicle_id, now)
         return self._previous_stop(vehicle_id)
 
-    def ownership_context(self, owner_id, session_id, vehicle_id, now, request):
+    def ownership_context(self, owner_id, session_id, vehicle_id, now, request, related_event_id=None):
         vehicle = self.store.vehicle(owner_id, vehicle_id, now)
         turns = self.store.recent_turns(session_id, vehicle_id)
         previous = next((json.loads(t["summary"]) for t in reversed(turns) if t["summary"]), None)
@@ -265,8 +271,13 @@ class CarMindApp:
                            **{k: r["facts"][k] for k in ("maintenance_item", "status", "due_date", "due_odometer_km", "source_id", "manufacturer_rule_id")}}
                           for r in self.store.reminders(vehicle_id, active_only=True)[:8])
         services = tuple(asdict(r) for r in self.store.service_records(vehicle_id, now, limit=8))
+        event = self.store.proactive_event(related_event_id, owner_id, vehicle_id) if related_event_id else None
+        active_event = ({key: event[key] for key in ("id", "event_type", "maintenance_item", "due_km", "due_date",
+                                                   "source_type", "source_id", "rule_id", "source_page")}
+                        if event and event["status"] != "RESOLVED" else None)
         return OwnershipContext(metadata, services, "APPLICABLE" if request else "UNKNOWN", reminders,
-                                tuple({"text": t["text"], "timestamp": t["timestamp"], "status": t["status"]} for t in turns), previous)
+                                tuple({"text": t["text"], "timestamp": t["timestamp"], "status": t["status"]} for t in turns),
+                                previous, active_event=active_event)
 
     def _odometer_write(self, event_id, vehicle_id, args, now, message_id):
         occurred = datetime.fromisoformat(args["occurred_at"])
@@ -321,6 +332,10 @@ class CarMindApp:
                 raise ValueError("This reminder is no longer active.")
             self.store.save_reminder(reminder["id"], vehicle_id, reminder["facts"], "ACKNOWLEDGED", "owner_acknowledged", now)
             entity, fields = reminder["id"], ("lifecycle",)
+        elif kind == CommandType.CREATE_OWNER_REMINDER:
+            entity = self.proactive.add_owner_reminder(owner_id, vehicle_id, args["maintenance_item"], now=now,
+                after_km=args.get("after_km"), after_months=args.get("after_months"), within_transaction=True)
+            fields = ("owner_reminder",)
         else:
             raise ValueError("Unsupported ownership command.")
         return MutationResult(True, "confirmed_owner_fact", entity, fields, now)
@@ -369,6 +384,7 @@ class CarMindApp:
                     selected_snapshot = FrozenEvidenceSnapshot("selected-vehicle", selected.profile, message, now)
                     safety = retain_unresolved_stop(evaluate_safety(selected_snapshot), self._previous_stop(selected_vehicle))
                 _, state, changes = self._refresh(owner_id, selected_vehicle, message, now)
+                self.proactive.evaluate_vehicle(owner_id, selected_vehicle, now)
                 self.store.finish_proposal(proposal_id, result)
         if replayed:
             trace.replayed = True
@@ -394,6 +410,9 @@ class CarMindApp:
             text = f"Set vehicle {a['field']} to {a['value']}."
         elif command.kind == CommandType.SELECT_VEHICLE:
             text = f"Switch the selected vehicle to {a['vehicle_id']}."
+        elif command.kind == CommandType.CREATE_OWNER_REMINDER:
+            target = f"in {a['after_km']:g} km" if "after_km" in a else f"after {a['after_months']} months"
+            text = f"Create your {a['maintenance_item'].replace('_', ' ')} reminder {target}. This is your reminder, not manufacturer guidance."
         else:
             text = f"Acknowledge maintenance reminder {a['reminder_id']}. This does not record completed service."
         if "supersedes_id" in a:
@@ -432,7 +451,8 @@ class CarMindApp:
         return "From your saved records:\n" + "\n".join(lines) + "\n\n" if lines else ""
 
     def handle_message(self, owner_id: str, session_id: str, message: UserMessage, *, now,
-                       snapshot: FrozenEvidenceSnapshot | None = None, confirmation_id: str | None = None) -> TurnResult:
+                       snapshot: FrozenEvidenceSnapshot | None = None, confirmation_id: str | None = None,
+                       related_event_id: str | None = None) -> TurnResult:
         """Confirmation is an adapter control, never parsed from chat or model output.
 
         The adapter must display proposed_commands and confirm the exact proposal
@@ -507,12 +527,16 @@ class CarMindApp:
                 return TurnResult(response, "replayed", safety=safety, proposed_commands=proposals, trace=trace)
             with self.store.transaction():
                 request, state, changes = self._refresh(owner_id, vehicle_id, message, now)
+                self.proactive.evaluate_vehicle(owner_id, vehicle_id, now)
             trace.maintenance_refreshed = True
             trace.reminder_changes.extend(changes)
             context = self.store.vehicle_context(owner_id, vehicle_id, now)
-            ownership = asdict(self.ownership_context(owner_id, session_id, vehicle_id, now, request))
+            ownership = asdict(self.ownership_context(owner_id, session_id, vehicle_id, now, request,
+                                                       related_event_id))
             # Existing initial service_history already exposes the same bounded records.
             ownership.pop("recent_services")
+            if ownership["active_event"] is None:
+                ownership.pop("active_event")
             trace.ownership_context_characters = len(encode(ownership))
             manual_index = (self.manual_index.for_vehicle(vehicle_id)
                             if hasattr(self.manual_index, "for_vehicle") else self.manual_index)

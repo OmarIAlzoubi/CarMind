@@ -30,3 +30,18 @@ def handle_payload(service, payload: dict, *, received_at: datetime):
 
 def twiml(reply) -> str:
     return '<Response><Message>' + escape(reply.text) + '</Message></Response>'
+
+
+class WhatsAppNotificationSender:
+    """Explicit outbound adapter around an injected transport; no Twilio client here."""
+
+    def __init__(self, store, transport):
+        if not callable(transport):
+            raise ValueError("A configured WhatsApp transport is required")
+        self.store, self.transport = store, transport
+
+    def send(self, notification, text):
+        recipient = self.store.channel_binding_for_owner(notification.owner_id, "whatsapp")
+        if recipient is None:
+            raise ValueError("Owner has no linked WhatsApp recipient")
+        self.transport(recipient, text)

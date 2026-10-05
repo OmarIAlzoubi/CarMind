@@ -37,6 +37,7 @@ class CommandType(str, Enum):
     SET_VEHICLE_FIELD = "set_vehicle_profile_field"
     SELECT_VEHICLE = "select_vehicle"
     ACKNOWLEDGE_REMINDER = "acknowledge_reminder"
+    CREATE_OWNER_REMINDER = "create_owner_reminder"
 
 
 class OdometerConflict(ValueError):
@@ -60,6 +61,9 @@ COMMAND_SCHEMAS = {
     "set_vehicle_profile_field": {"required": {"field": list(PROFILE_FIELDS), "value": "string, or positive integer for year"}},
     "select_vehicle": {"required": {"vehicle_id": "owned vehicle ID"}},
     "acknowledge_reminder": {"required": {"reminder_id": "active reminder ID"}},
+    "create_owner_reminder": {"required": {"maintenance_item": list(SERVICE_TYPES)},
+                              "optional": {"after_km": "positive km from a fresh saved odometer",
+                                           "after_months": "positive calendar months, at most 120"}},
 }
 
 COMMAND_PROTOCOL = """
@@ -134,6 +138,15 @@ def parse_command(raw: dict, owner_text: str) -> OwnershipCommand:
                 raise ValueError("Vehicle year must be positive.")
         elif not isinstance(value, str) or not value.strip() or len(value) > 120:
             raise ValueError("Invalid vehicle field value.")
+    elif kind == CommandType.CREATE_OWNER_REMINDER:
+        if args["maintenance_item"] not in SERVICE_TYPES or ("after_km" in args) == ("after_months" in args):
+            raise ValueError("Owner reminder needs one supported maintenance item and due dimension.")
+        if "after_km" in args:
+            distance_km(args["after_km"], "km")
+            if args["after_km"] <= 0:
+                raise ValueError("Owner reminder distance must be positive.")
+        if "after_months" in args and (type(args["after_months"]) is not int or not 1 <= args["after_months"] <= 120):
+            raise ValueError("Owner reminder months must be between 1 and 120.")
     for key in ("supersedes_id", "vehicle_id", "reminder_id"):
         if key in args:
             identifier(args[key])
@@ -178,3 +191,4 @@ class OwnershipContext:
     recent_turns: tuple[dict, ...]
     previous_assessment: dict | None
     retention: dict = field(default_factory=lambda: {"turns": 6, "services": 8, "reminders": 8})
+    active_event: dict | None = None

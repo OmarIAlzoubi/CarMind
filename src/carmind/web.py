@@ -44,7 +44,8 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if path not in ("/api/overview", "/api/vehicles", "/api/services", "/api/reminders", "/api/manual/status"):
+            if path not in ("/api/overview", "/api/vehicles", "/api/services", "/api/reminders",
+                            "/api/manual/status", "/api/proactive/events"):
                 self._json(404, {"error": "Not found"})
                 return
             try:
@@ -57,6 +58,8 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                     data = overview.get("reminders", [])
                 elif path == "/api/manual/status":
                     data = {"documents": overview.get("documents", [])}
+                elif path == "/api/proactive/events":
+                    data = {"events": overview.get("needs_attention", [])}
                 else:
                     data = {**overview, "ui_mode": "live" if live else "offline"}
                 self._json(200, data)
@@ -65,7 +68,9 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ("/api/chat", "/api/confirm", "/api/vehicle/select", "/api/proposal/cancel", "/api/manual/upload"):
+            if path not in ("/api/chat", "/api/confirm", "/api/vehicle/select", "/api/proposal/cancel",
+                            "/api/manual/upload", "/api/proactive/preferences", "/api/proactive/ack",
+                            "/api/proactive/explain"):
                 self._json(404, {"error": "Not found"})
                 return
             try:
@@ -78,6 +83,26 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                 if not isinstance(data, dict):
                     raise ValueError("Invalid request")
                 now = datetime.now(timezone.utc)
+                if path == "/api/proactive/preferences":
+                    preferences = service.update_notification_preferences("web", web_identity,
+                                                                           data, now=now)
+                    self._json(200, preferences)
+                    return
+                if path in ("/api/proactive/ack", "/api/proactive/explain"):
+                    overview = service.overview("web", web_identity, now=now)
+                    vehicle = overview.get("vehicle")
+                    if vehicle is None or data.get("vehicle_id") != vehicle["id"]:
+                        raise ValueError("Select the vehicle for this reminder")
+                    if path.endswith("/ack"):
+                        service.acknowledge_proactive("web", web_identity, vehicle["id"],
+                                                      data["event_id"], now=now)
+                        self._json(200, {"status": "acknowledged"})
+                    else:
+                        explanation = service.explain_proactive("web", web_identity, vehicle["id"],
+                                                               data["event_id"], now=now,
+                                                               locale=data.get("locale", "en"))
+                        self._json(200, {"text": explanation})
+                    return
                 if path == "/api/manual/upload":
                     filename = data.get("filename")
                     encoded = data.get("content_base64")

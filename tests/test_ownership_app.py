@@ -36,7 +36,7 @@ class OwnershipStorePathTests(unittest.TestCase):
             store = OwnershipStore(path)
             try:
                 self.assertTrue(path.is_file())
-                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 3)
             finally:
                 store.close()
 
@@ -44,7 +44,7 @@ class OwnershipStorePathTests(unittest.TestCase):
         with patch.object(Path, "mkdir", side_effect=AssertionError("No directory should be created")):
             store = OwnershipStore(":memory:")
             try:
-                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 3)
             finally:
                 store.close()
 
@@ -115,7 +115,7 @@ class OwnershipAppTests(unittest.TestCase):
         self.assertEqual(self.store.session(self.session, self.owner)["active_vehicle_id"], "second")
         self.assertEqual(self.store.vehicle(self.owner, self.profile.vehicle_id, NOW).nickname, "Test car")
         self.assertEqual(self.store.db.execute("PRAGMA foreign_keys").fetchone()[0], 1)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 3)
 
     def test_no_active_vehicle_is_graceful_and_selectable(self):
         session = self.app.start_session(self.owner, now=NOW)
