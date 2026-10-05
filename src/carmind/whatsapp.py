@@ -43,5 +43,6 @@ class WhatsAppNotificationSender:
     def send(self, notification, text):
         recipient = self.store.channel_binding_for_owner(notification.owner_id, "whatsapp")
         if recipient is None:
-            raise ValueError("Owner has no linked WhatsApp recipient")
-        self.transport(recipient, text)
+            from carmind.proactive_runner import PermanentDeliveryError
+            raise PermanentDeliveryError("missing_channel_binding")
+        return self.transport(recipient, text)

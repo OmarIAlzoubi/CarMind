@@ -12,6 +12,7 @@ Instead of acting as a generic automotive chatbot, CarMind combines conversation
 - Deterministic maintenance intelligence
 - Deterministic safety logic
 - Proactive ownership events and reminders
+- Durable notification delivery
 - Agentic tool use
 - Web and WhatsApp-style interaction
 - Explicit confirmation for persistent state changes
@@ -26,7 +27,7 @@ The core idea is simple:
 
 Most automotive assistants answer isolated questions.
 
-CarMind is designed around continuous ownership context.
+CarMind is designed around **continuous ownership context**.
 
 It can reason using:
 
@@ -41,17 +42,17 @@ It can reason using:
 - Open ownership events
 - Proactive maintenance state
 
-Manufacturer-specific knowledge remains outside the core architecture.
+Manufacturer-specific knowledge stays outside the core architecture.
 
-That means CarMind can work with different vehicles without changing the Python code.
+That means the same CarMind application can work with different vehicles without changing the Python source code.
 
-A developer can supply documents for a Toyota, BMW, Hyundai, Ford, or another vehicle while keeping the same CarMind core.
+A developer can provide documentation for a Toyota, BMW, Hyundai, Ford, or another vehicle while keeping the same core system.
 
 ---
 
-# Core Capabilities
+## Core Capabilities
 
-## Persistent Vehicle Memory
+### Persistent Vehicle Memory
 
 CarMind maintains structured ownership state across conversations, including:
 
@@ -69,7 +70,7 @@ CarMind also supports multiple vehicles while keeping vehicle-specific state iso
 
 ---
 
-## Jev-Powered Semantic Routing
+### Jev-Powered Semantic Routing
 
 CarMind uses **Jev** as a semantic routing layer to determine which capabilities are relevant to each user request.
 
@@ -101,12 +102,14 @@ It does **not** decide:
 - Persistent writes
 - Permissions
 - Vehicle ownership boundaries
+- Notification timing
+- Delivery retries
 
 Those responsibilities remain inside deterministic CarMind components.
 
 ---
 
-## Manufacturer-Manual RAG
+### Manufacturer-Manual RAG
 
 Users can provide their own legally obtained manufacturer documentation.
 
@@ -133,7 +136,7 @@ No production manufacturer manuals are distributed with this repository.
 
 ---
 
-## Manufacturer Document Onboarding
+### Manufacturer Document Onboarding
 
 Manufacturer PDFs can be added through the local Web interface or CLI.
 
@@ -151,11 +154,11 @@ CarMind:
 
 Manufacturer documents remain local and are excluded from Git.
 
-Scanned PDFs without extractable text are reported as unavailable instead of silently becoming unusable search sources.
+Scanned PDFs without extractable text are reported as unavailable instead of silently becoming unusable retrieval sources.
 
 ---
 
-## Maintenance Intelligence
+### Maintenance Intelligence
 
 CarMind supports maintenance workflows such as:
 
@@ -175,7 +178,7 @@ A PDF by itself does **not** automatically become an authoritative maintenance s
 
 ---
 
-## Proactive Ownership
+### Proactive Ownership
 
 CarMind can evaluate ownership state proactively instead of waiting for the driver to ask first.
 
@@ -204,7 +207,7 @@ If the owner later records the matching completed service, the relevant reminder
 
 ---
 
-## Events and Notifications Are Separate
+### Events and Notifications Are Separate
 
 CarMind separates **domain truth** from **message delivery**.
 
@@ -215,36 +218,37 @@ Maintenance event:
 Oil service is due
 
 Notification:
-WhatsApp/Web message informing the owner
+A message informing the owner
 ```
 
 A delivery failure does not change the maintenance event itself.
 
-The persistent outbox supports notification states such as:
+The persistent outbox supports delivery states such as:
 
 - Pending
 - Deferred
+- In flight
 - Sent
 - Failed
 - Cancelled
 
-This allows notification delivery to fail or retry without corrupting vehicle state.
+This allows delivery to fail, retry, or be cancelled without corrupting the underlying vehicle state.
 
 ---
 
-## Reminder Deduplication and Cooldowns
+### Reminder Deduplication and Cooldowns
 
 CarMind avoids repeated reminder spam.
 
 Stable event identities prevent the same maintenance condition from creating duplicate events every time proactive evaluation runs.
 
-Persisted cooldown behavior can limit repeated notifications while an event remains unresolved.
+Persisted cooldown behavior limits repeated notifications while an event remains unresolved.
 
 Running the evaluator repeatedly with unchanged vehicle state remains idempotent.
 
 ---
 
-## Quiet Hours and Notification Preferences
+### Quiet Hours and Notification Preferences
 
 Outbound proactive reminders are **disabled by default**.
 
@@ -256,7 +260,7 @@ Owners can configure preferences such as:
 - Quiet hours
 - Odometer follow-ups
 
-An event can still be recorded during quiet hours, while delivery is deferred until an allowed time.
+An event can still be recorded during quiet hours while delivery is deferred until an allowed time.
 
 Acknowledging a reminder only means:
 
@@ -268,7 +272,7 @@ It does **not** mean:
 
 ---
 
-## Owner-Created Reminders
+### Owner-Created Reminders
 
 CarMind can also support reminders that come from the owner rather than the manufacturer.
 
@@ -290,7 +294,7 @@ CarMind does not present them as manufacturer recommendations.
 
 ---
 
-## Deterministic Safety Layer
+### Deterministic Safety Layer
 
 Safety-critical decisions are separated from language-model reasoning.
 
@@ -307,7 +311,7 @@ A lack of a triggered rule does **not** mean the vehicle has been declared safe 
 
 ---
 
-## Safe State Changes
+### Safe State Changes
 
 CarMind separates conversation from persistent writes.
 
@@ -333,7 +337,7 @@ This remains true even when the conversation started from a proactive reminder.
 
 ---
 
-## Web + WhatsApp Architecture
+### Web + WhatsApp Architecture
 
 CarMind's core is channel-independent.
 
@@ -356,7 +360,7 @@ This avoids duplicating ownership logic across interfaces.
 
 ---
 
-# Architecture
+## Architecture
 
 ```text
                               ┌────────────────────┐
@@ -421,9 +425,12 @@ Proactive Evaluator
              │
              ▼
      Notification Outbox
-        │            │
-        ▼            ▼
-       Web       WhatsApp-style
+             │
+             ▼
+       Run-Once Runner
+         │         │
+         ▼         ▼
+        Web    Outbound Channel
 ```
 
 The language model is responsible for semantic understanding and bounded reasoning.
@@ -442,11 +449,13 @@ Python remains responsible for deterministic behavior such as:
 - Reminder deduplication
 - Quiet hours
 - Notification state
+- Delivery claims
+- Retry policy
 - Tool constraints
 
 ---
 
-# Vehicle-Agnostic Manufacturer Knowledge
+## Vehicle-Agnostic Manufacturer Knowledge
 
 CarMind is not tied to a specific manufacturer or model.
 
@@ -472,9 +481,9 @@ Local manufacturer documents and generated indexes remain outside Git.
 
 ---
 
-# Add Your Vehicle Manual
+## Add Your Vehicle Manual
 
-## Web
+### Web
 
 1. Add your vehicle to CarMind.
 2. Open **My Car → Manufacturer documents**.
@@ -493,11 +502,11 @@ Examples:
 
 ---
 
-## CLI
+### CLI
 
 Activate your Python environment first.
 
-### PowerShell
+#### PowerShell
 
 ```powershell
 $env:PYTHONPATH="src"
@@ -535,7 +544,7 @@ python -m carmind manual `
   --vehicle-id YOUR_VEHICLE_ID
 ```
 
-### macOS / Linux
+#### macOS / Linux
 
 ```bash
 PYTHONPATH=src python -m carmind manual \
@@ -551,13 +560,15 @@ User-provided metadata does **not** automatically prove that a document applies 
 
 ---
 
-# Proactive CLI
+## Proactive CLI
 
 CarMind does not start a hidden background scheduler.
 
-Proactive evaluation is explicitly invoked by an operator or future scheduler.
+Proactive evaluation is explicitly invoked by an operator or external scheduler.
 
 ### PowerShell
+
+Evaluate proactive state only:
 
 ```powershell
 $env:PYTHONPATH="src"
@@ -583,24 +594,221 @@ python -m carmind proactive `
   pending
 ```
 
-The CLI evaluates and inspects local proactive state.
-
-It does not automatically start a daemon or send live outbound messages.
+The CLI evaluates and inspects local proactive state without starting a daemon.
 
 ---
 
-# Running the Offline Demo
+## Scheduled Proactive Runs
+
+CarMind follows a **run-once scheduling model**.
+
+It does not run an internal infinite scheduler or hidden background thread.
+
+Instead, an external scheduler decides when CarMind should run.
+
+Examples include:
+
+- Windows Task Scheduler
+- cron
+- Container schedulers
+- Cloud schedulers
+- Manual operator execution
+
+The proactive CLI separates the main operations:
+
+```text
+run      → evaluate ownership state only
+deliver  → deliver currently eligible notifications only
+cycle    → evaluate first, then deliver
+```
+
+This keeps infrastructure outside the CarMind core while preserving deterministic ownership and delivery behavior.
+
+---
+
+### Safe Concurrent Delivery
+
+Multiple scheduler invocations may overlap.
+
+CarMind protects outbound notifications using persistent SQLite delivery leases.
+
+An eligible notification is atomically claimed before delivery.
+
+Each claim has bounded ownership information so that:
+
+- Two runners cannot successfully claim the same notification simultaneously
+- A crashed runner does not leave a notification locked forever
+- Expired claims can be recovered later
+- An old runner cannot finalize a notification after another runner acquires a newer claim
+
+This prevents overlapping local workers from double-processing the same notification.
+
+For external delivery providers, CarMind can expose the stable notification ID for provider-side idempotency when supported.
+
+> Local storage alone cannot guarantee exactly-once external delivery if a process crashes after a provider accepts a message but before CarMind records the successful result.
+
+Provider-side idempotency should therefore be used when available.
+
+---
+
+### Retry and Backoff
+
+Transient delivery failures are retried deterministically.
+
+Retry state is persisted rather than handled with long-running `sleep()` loops.
+
+Delivery state can include information such as:
+
+- Attempt count
+- Next retry time
+- Delivery result
+- Sanitized error category
+- Active lease state
+
+Retries are bounded.
+
+Permanent notification failure does not change the underlying maintenance or ownership event.
+
+---
+
+### Delivery Eligibility Is Rechecked
+
+A queued notification is not automatically guaranteed to send later.
+
+Immediately before delivery, CarMind rechecks conditions such as:
+
+- Proactive reminders are still enabled
+- The selected channel is still valid
+- The underlying event remains active
+- The notification has reached its scheduled time
+- The owner is outside configured quiet hours
+
+Example:
+
+```text
+Oil reminder is queued
+        ↓
+Owner records completed oil service
+        ↓
+Oil event is resolved
+        ↓
+Queued notification becomes non-deliverable
+```
+
+CarMind does not intentionally send stale reminders simply because they were queued earlier.
+
+---
+
+### Windows Task Scheduler
+
+The repository includes:
+
+```text
+scripts/run_proactive_cycle.ps1
+```
+
+A Windows Task Scheduler action can invoke one CarMind cycle.
+
+Example arguments:
+
+```powershell
+-NoProfile -File "C:\path\to\CarMind\scripts\run_proactive_cycle.ps1" `
+  -PythonExe "C:\path\to\python.exe" `
+  -DatabasePath "C:\path\to\owner.sqlite3" `
+  -Limit 50
+```
+
+Replace all paths with your own environment paths.
+
+The script runs one cycle and exits.
+
+It does **not** install or configure Windows Task Scheduler automatically.
+
+---
+
+### cron
+
+Linux/macOS deployments can invoke the same run-once cycle through cron.
+
+Example:
+
+```text
+0 * * * * cd /path/to/CarMind && PYTHONPATH=src /path/to/python -m carmind proactive --db /path/to/owner.sqlite3 cycle --limit 50 --console --json
+```
+
+The scheduling frequency is intentionally external.
+
+CarMind does not assume that proactive evaluation must run hourly, daily, or at any other universal frequency.
+
+---
+
+### Dry Run
+
+Operators can preview a cycle without sending notifications or consuming delivery attempts.
+
+```powershell
+python -m carmind proactive `
+  --db .local/owner.sqlite3 `
+  cycle `
+  --dry-run
+```
+
+This is useful for local verification and deployment testing.
+
+---
+
+### Machine-Readable Reports
+
+Scheduler runs can produce structured JSON for monitoring and future automation.
+
+```powershell
+python -m carmind proactive `
+  --db .local/owner.sqlite3 `
+  cycle `
+  --limit 50 `
+  --json
+```
+
+A cycle report can include operational information such as:
+
+- Owners evaluated
+- Vehicles evaluated
+- Events created
+- Events updated
+- Notifications created
+- Notifications claimed
+- Notifications sent
+- Notifications deferred
+- Notifications retried
+- Notifications failed
+- Notifications cancelled
+
+Provider secrets are not included in cycle reports.
+
+---
+
+### Current Delivery Boundary
+
+The public scheduler examples use local, fake, or explicit console delivery.
+
+No live WhatsApp transport is activated automatically.
+
+A production outbound provider can be connected through the notification transport layer without changing the proactive ownership engine.
+
+---
+
+## Running the Offline Demo
 
 The repository includes a fully offline scripted ownership demo.
 
-## PowerShell
+### PowerShell
 
 ```powershell
 $env:PYTHONPATH="src"
 python -m carmind --demo
 ```
 
-## macOS / Linux
+### macOS / Linux
 
 ```bash
 PYTHONPATH=src python -m carmind --demo
@@ -620,7 +828,7 @@ It uses fictional data to demonstrate:
 
 ---
 
-# Manufacturer Documentation Is Optional
+## Manufacturer Documentation Is Optional
 
 CarMind can start and operate without manufacturer documentation.
 
@@ -648,7 +856,7 @@ CarMind does not invent missing manufacturer specifications.
 
 ---
 
-# Testing
+## Testing
 
 CarMind includes unit and integration coverage across:
 
@@ -665,14 +873,18 @@ CarMind includes unit and integration coverage across:
 - WhatsApp-style interaction
 - Proactive ownership
 - Notification outbox
+- Notification leasing
+- Delivery retries
+- Crash recovery
 - Database migration
 - Multi-vehicle isolation
 - Multi-owner isolation
+- Concurrent runner behavior
 
 Current validated suite:
 
 ```text
-401 tests passed
+415 tests passed
 333 subtests passed
 ```
 
@@ -685,7 +897,7 @@ The test suite runs without relying on:
 - Twilio
 - Developer-specific vehicle data
 
-Synthetic manufacturer fixtures are included for reproducible testing.
+Synthetic manufacturer and delivery fixtures are used for reproducible testing.
 
 Run:
 
@@ -704,7 +916,7 @@ PYTHONPATH=src python -m pytest -q
 
 ---
 
-# Project Structure
+## Project Structure
 
 ```text
 CarMind/
@@ -713,7 +925,8 @@ CarMind/
 ├── eval/                             # Evaluation cases and synthetic fixtures
 ├── manufacturer_knowledge/
 │   └── _template/                    # Generic manufacturer setup template
-├── scripts/                          # Development utilities
+├── scripts/
+│   └── run_proactive_cycle.ps1       # Portable run-once scheduler wrapper
 ├── src/carmind/
 │   ├── app.py                        # Core application layer
 │   ├── ownership.py                  # Ownership state
@@ -727,6 +940,7 @@ CarMind/
 │   ├── manufacturer_ingestion.py     # PDF onboarding and indexing
 │   ├── manual_cli.py                 # Manufacturer document CLI
 │   ├── proactive.py                  # Proactive ownership engine
+│   ├── proactive_runner.py           # Run-once delivery/evaluation runner
 │   ├── proactive_cli.py              # Proactive operator CLI
 │   ├── product.py                    # Product interaction layer
 │   ├── web.py                        # Local Web interface
@@ -737,13 +951,13 @@ CarMind/
 
 ---
 
-# Design Principles
+## Design Principles
 
 CarMind follows several architectural rules:
 
 **LLMs handle semantics — not safety-critical policy.**
 
-**Jev handles relevance — not ownership, safety, or state mutation.**
+**Jev handles relevance — not ownership, safety, state mutation, or delivery policy.**
 
 **Manufacturer facts come from evidence — not model memory.**
 
@@ -759,13 +973,19 @@ CarMind follows several architectural rules:
 
 **Proactive messaging is opt-in.**
 
+**Scheduling is external and run-once.**
+
+**Notification claims are durable and transactional.**
+
+**Retries are persisted rather than implemented as sleeping background loops.**
+
 **The product remains useful even without manufacturer documents.**
 
 **The user experience stays simple even when the backend is complex.**
 
 ---
 
-# Current Status
+## Current Status
 
 CarMind is an active proof-of-concept and engineering project focused on reliable AI-assisted vehicle ownership.
 
@@ -775,31 +995,38 @@ The current version demonstrates:
 - Jev semantic capability routing
 - Bounded agentic planning
 - Manufacturer-grounded retrieval
-- PDF onboarding
+- Manufacturer PDF onboarding
 - Vehicle-specific knowledge isolation
 - Deterministic safety boundaries
 - Deterministic maintenance intelligence
 - Proactive ownership events
 - Persistent notification state
+- Run-once proactive execution
+- Durable notification claims
+- Retry and backoff behavior
+- Crash recovery
+- Overlapping-run protection
 - Web interaction
 - WhatsApp-style interaction
 - Multi-vehicle state
-- Database migration and restart durability
+- Database migrations
+- Restart durability
 
-CarMind does **not** currently run an always-on scheduler by itself.
+CarMind does **not** currently run an internal always-on daemon.
 
-Proactive evaluation must be invoked explicitly by an operator or external scheduler.
+Proactive cycles are invoked by an operator or external scheduler.
 
 Live outbound WhatsApp delivery is also not enabled automatically.
 
 ---
 
-# Roadmap
+## Roadmap
 
 Planned areas include:
 
-- Scheduler / periodic proactive runner
 - Real outbound WhatsApp transport
+- Provider-side delivery idempotency
+- Delivery receipts and status synchronization
 - Broader manufacturer-document ingestion
 - OCR support for scanned manuals
 - Improved applicability verification
@@ -812,7 +1039,7 @@ Planned areas include:
 
 ---
 
-# Privacy & Local Data
+## Privacy & Local Data
 
 CarMind is designed so vehicle-specific ownership data can remain local.
 
@@ -833,9 +1060,11 @@ Runtime state should remain under ignored local paths such as:
 
 Manufacturer PDFs are not sent to external providers as part of the local ingestion pipeline.
 
+Operational delivery records should contain bounded, sanitized information rather than secrets or full conversation histories.
+
 ---
 
-# Safety Boundaries
+## Safety Boundaries
 
 CarMind is not a substitute for:
 
@@ -852,7 +1081,7 @@ Safety-critical vehicle decisions remain outside unrestricted language-model rea
 
 ---
 
-# Author
+## Author
 
 **Omar Al-Zoubi**
 
@@ -869,7 +1098,7 @@ GitHub: [OmarIAlzoubi](https://github.com/OmarIAlzoubi)
 
 ---
 
-# Disclaimer
+## Disclaimer
 
 CarMind is currently a proof-of-concept.
 

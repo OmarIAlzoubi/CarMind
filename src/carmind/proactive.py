@@ -139,7 +139,7 @@ class NotificationSender(Protocol):
 
 
 class WebNotificationSink:
-    """Web reads persisted events; delivery records that the item was surfaced."""
+    """Compatibility no-op; Web reads events and the runner does not send them."""
 
     def send(self, notification: NotificationIntent, text: str) -> None:
         return None
@@ -374,6 +374,7 @@ class ProactiveService:
                     and prior["status"] in {"PENDING", "DEFERRED", "FAILED"}):
                 self.store.set_notification_status(prior["id"], NotificationStatus.CANCELLED.value)
         if event["status"] != EventStatus.OPEN.value or not preferences.enabled or (
+                preferences.preferred_channel == "web") or (
                 event["event_type"] == EventType.ODOMETER_UPDATE_REQUESTED.value and
                 not preferences.odometer_followups_enabled):
             for prior in history:
@@ -381,21 +382,20 @@ class ProactiveService:
                     self.store.set_notification_status(prior["id"], NotificationStatus.CANCELLED.value)
             return
         current = [row for row in history if row["event_type"] == event["event_type"]]
+        sequence = max((row["sequence"] for row in current), default=-1) + 1
+        for prior in current:
+            if prior["channel"] != preferences.preferred_channel and prior["status"] in {"PENDING", "DEFERRED"}:
+                self.store.set_notification_status(prior["id"], "CANCELLED")
+        current = [row for row in current if row["channel"] == preferences.preferred_channel]
         latest = current[-1] if current else None
         if latest and latest["status"] in {"PENDING", "DEFERRED"}:
             if latest["status"] == "DEFERRED" and datetime.fromisoformat(latest["scheduled_for"]) <= now:
                 self.store.set_notification_status(latest["id"], "PENDING")
             return
         if latest and latest["status"] == "FAILED":
-            attempted = datetime.fromisoformat(latest["last_attempt_at"])
-            if now - attempted >= timedelta(days=self.policy.followup_days):
-                scheduled = _delivery_time(now, preferences)
-                self.store.set_notification_status(latest["id"],
-                    "DEFERRED" if scheduled > now else "PENDING", scheduled_for=scheduled.isoformat())
             return
         if latest and latest["status"] == "SENT" and now - datetime.fromisoformat(latest["last_attempt_at"]) < timedelta(days=self.policy.followup_days):
             return
-        sequence = max((row["sequence"] for row in current), default=-1) + 1
         scheduled = _delivery_time(now, preferences)
         self.store.save_notification({"id": "notification-" + _identity((event["id"], event["event_type"], sequence)),
             "event_id": event["id"], "owner_id": event["owner_id"], "vehicle_id": event["vehicle_id"],
@@ -481,38 +481,8 @@ class ProactiveService:
         return explain_event(_event_from_row(row), language)
 
     def dispatch(self, senders: dict[str, NotificationSender], *, now, owner_id=None):
-        """Explicit delivery step. A sender failure updates only the outbox."""
-        now = utc(now)
-        sent = failed = skipped = 0
-        for row in self.store.notifications(owner_id=owner_id, statuses=("PENDING",)):
-            if datetime.fromisoformat(row["scheduled_for"]) > now:
-                continue
-            event_row = self.store.proactive_event(row["event_id"], row["owner_id"], row["vehicle_id"])
-            preferences = self.preferences(row["owner_id"])
-            if (event_row is None or event_row["status"] != "OPEN" or not preferences.enabled
-                    or preferences.preferred_channel != row["channel"]):
-                with self.store.transaction():
-                    self.store.set_notification_status(row["id"], "CANCELLED")
-                skipped += 1
-                continue
-            scheduled = _delivery_time(now, preferences)
-            if scheduled > now:
-                with self.store.transaction():
-                    self.store.set_notification_status(row["id"], "DEFERRED", scheduled_for=scheduled.isoformat())
-                skipped += 1
-                continue
-            sender = senders.get(row["channel"])
-            intent = _intent_from_row(row)
-            try:
-                if sender is None:
-                    raise ValueError("No sender configured")
-                sender.send(intent, notification_text(_event_from_row(event_row), preferences.language))
-            except Exception:
-                with self.store.transaction():
-                    self.store.set_notification_status(row["id"], "FAILED", attempted_at=now.isoformat())
-                failed += 1
-            else:
-                with self.store.transaction():
-                    self.store.set_notification_status(row["id"], "SENT", attempted_at=now.isoformat())
-                sent += 1
-        return DeliveryReport(sent, failed, skipped)
+        """Backward-compatible explicit delivery through the leased runner."""
+        from carmind.proactive_runner import ProactiveCycleRunner
+        report = ProactiveCycleRunner(self.app, senders).deliver(now=now, owner_id=owner_id)
+        return DeliveryReport(report.notifications_sent, report.notifications_failed,
+                              report.notifications_deferred + report.notifications_cancelled)

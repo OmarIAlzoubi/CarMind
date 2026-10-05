@@ -386,7 +386,8 @@ class ProductTests(unittest.TestCase):
         import sqlite3
         db = sqlite3.connect(self.path)
         try:
-            for table in ("notification_outbox", "proactive_events", "owner_reminders",
+            for table in ("notification_claims", "notification_attempts", "notification_outbox",
+                          "proactive_events", "owner_reminders",
                           "notification_preferences", "external_receipts", "vehicle_drafts", "channel_bindings"):
                 db.execute(f"DROP TABLE {table}")
             db.execute("PRAGMA user_version=1")
@@ -395,7 +396,7 @@ class ProductTests(unittest.TestCase):
             db.close()
         migrated = OwnershipStore(self.path)
         try:
-            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(migrated.db.execute("SELECT id FROM owners").fetchone()[0], "old-owner")
             self.assertEqual(migrated.db.execute("SELECT count(*) FROM channel_bindings").fetchone()[0], 0)
         finally:

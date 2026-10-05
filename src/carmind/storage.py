@@ -118,6 +118,23 @@ CREATE INDEX notification_outbox_due ON notification_outbox(status,scheduled_for
 PRAGMA user_version = 3;
 """
 
+MIGRATION_V4 = """
+ALTER TABLE notification_outbox ADD COLUMN next_attempt_at TEXT;
+UPDATE notification_outbox SET status='CANCELLED'
+ WHERE channel='web' AND status IN ('PENDING','DEFERRED');
+CREATE TABLE notification_claims (
+ notification_id TEXT PRIMARY KEY REFERENCES notification_outbox(id),
+ lease_token TEXT NOT NULL, claimed_at TEXT NOT NULL, lease_until TEXT NOT NULL);
+CREATE TABLE notification_attempts (
+ id INTEGER PRIMARY KEY, notification_id TEXT NOT NULL REFERENCES notification_outbox(id),
+ attempt_number INTEGER NOT NULL, attempted_at TEXT NOT NULL, channel TEXT NOT NULL,
+ result TEXT NOT NULL CHECK(result IN ('SUCCESS','TRANSIENT_FAILURE','PERMANENT_FAILURE')),
+ error_category TEXT, provider_message_id TEXT, next_attempt_at TEXT,
+ UNIQUE(notification_id,attempt_number));
+CREATE INDEX notification_claims_expiry ON notification_claims(lease_until);
+PRAGMA user_version = 4;
+"""
+
 
 def encode(value) -> str:
     return json.dumps(value, default=lambda x: x.isoformat() if isinstance(x, (date, datetime)) else x.value,
@@ -142,11 +159,13 @@ class OwnershipStore:
             self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
         elif version == 1:
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V2 + "\nCOMMIT;")
-        elif version not in (2, 3):
+        elif version not in (2, 3, 4):
             self.db.close()
             raise ValueError("Unsupported ownership database version.")
         if version in (0, 1, 2):
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V3 + "\nCOMMIT;")
+        if version in (0, 1, 2, 3):
+            self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V4 + "\nCOMMIT;")
 
     def close(self):
         self.db.close()
@@ -469,6 +488,84 @@ class OwnershipStore:
         self.db.execute("""UPDATE notification_outbox SET status=?,scheduled_for=COALESCE(?,scheduled_for),
             attempt_count=attempt_count+?,last_attempt_at=COALESCE(?,last_attempt_at) WHERE id=?""",
             (status, scheduled_for, 1 if attempted_at else 0, attempted_at, notification_id))
+
+    def eligible_notifications(self, now, *, limit=None, owner_id=None, vehicle_id=None, channels=None):
+        stamp = utc(now).isoformat()
+        clauses = ["n.status IN ('PENDING','DEFERRED')", "n.scheduled_for<=?",
+                   "(n.next_attempt_at IS NULL OR n.next_attempt_at<=?)",
+                   "(c.notification_id IS NULL OR c.lease_until<=?)"]
+        args = [stamp, stamp, stamp]
+        if owner_id is not None:
+            clauses.append("n.owner_id=?")
+            args.append(owner_id)
+        if vehicle_id is not None:
+            clauses.append("n.vehicle_id=?")
+            args.append(vehicle_id)
+        if channels is not None:
+            if not channels:
+                return []
+            clauses.append("n.channel IN (" + ",".join("?" for _ in channels) + ")")
+            args.extend(channels)
+        query = ("SELECT n.* FROM notification_outbox n LEFT JOIN notification_claims c "
+                 "ON c.notification_id=n.id WHERE " + " AND ".join(clauses) +
+                 " ORDER BY n.scheduled_for,n.created_at,n.id")
+        if limit is not None:
+            query += " LIMIT ?"
+            args.append(limit)
+        return [dict(row) for row in self.db.execute(query, args)]
+
+    def claim_notifications(self, now, lease_until, runner_id, *, limit, owner_id=None,
+                            vehicle_id=None, channels=None):
+        """The eligible read and lease writes share one SQLite write transaction."""
+        with self.transaction():
+            ready = self.eligible_notifications(now, limit=limit, owner_id=owner_id,
+                                                vehicle_id=vehicle_id, channels=channels)
+            claimed = []
+            for row in ready:
+                token = runner_id + ":" + row["id"]
+                changed = self.db.execute("""INSERT INTO notification_claims
+                    (notification_id,lease_token,claimed_at,lease_until) VALUES (?,?,?,?)
+                    ON CONFLICT(notification_id) DO UPDATE SET lease_token=excluded.lease_token,
+                    claimed_at=excluded.claimed_at,lease_until=excluded.lease_until
+                    WHERE notification_claims.lease_until<=?""",
+                    (row["id"], token, utc(now).isoformat(), utc(lease_until).isoformat(),
+                     utc(now).isoformat())).rowcount
+                if changed:
+                    claimed.append((row, token))
+            return claimed
+
+    def finalize_claim(self, notification_id, token, now, status, *, result=None,
+                       error_category=None, provider_message_id=None, next_attempt_at=None,
+                       scheduled_for=None, attempted_at=None):
+        """An expired or replaced claimant cannot alter notification or attempt history."""
+        stamp = utc(now).isoformat()
+        attempted_stamp = utc(attempted_at).isoformat() if attempted_at is not None else stamp
+        with self.transaction():
+            claim = self.db.execute("SELECT lease_token,lease_until FROM notification_claims WHERE notification_id=?",
+                                    (notification_id,)).fetchone()
+            if claim is None or claim["lease_token"] != token or claim["lease_until"] <= stamp:
+                return False
+            row = self.db.execute("SELECT * FROM notification_outbox WHERE id=?", (notification_id,)).fetchone()
+            if row["status"] not in ("PENDING", "DEFERRED"):
+                self.db.execute("DELETE FROM notification_claims WHERE notification_id=?", (notification_id,))
+                return False
+            attempt = result is not None
+            self.db.execute("""UPDATE notification_outbox SET status=?,
+                attempt_count=attempt_count+?,last_attempt_at=CASE WHEN ? THEN ? ELSE last_attempt_at END,
+                next_attempt_at=?,scheduled_for=COALESCE(?,scheduled_for) WHERE id=?""",
+                (status, int(attempt), int(attempt), attempted_stamp, next_attempt_at, scheduled_for, notification_id))
+            if attempt:
+                self.db.execute("""INSERT INTO notification_attempts
+                    (notification_id,attempt_number,attempted_at,channel,result,error_category,
+                     provider_message_id,next_attempt_at) VALUES (?,?,?,?,?,?,?,?)""",
+                    (notification_id, row["attempt_count"] + 1, attempted_stamp, row["channel"], result,
+                     error_category, provider_message_id, next_attempt_at))
+            self.db.execute("DELETE FROM notification_claims WHERE notification_id=?", (notification_id,))
+            return True
+
+    def notification_attempts(self, notification_id):
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM notification_attempts WHERE notification_id=? ORDER BY attempt_number", (notification_id,))]
 
     def latest_sent_event_id(self, owner_id, vehicle_id, since):
         row = self.db.execute("""SELECT n.event_id FROM notification_outbox n
