@@ -9,6 +9,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from carmind.assessment import HYPOTHESES, UNCERTAINTIES
+from carmind.aftersales import demo_slots
 from carmind.contracts import SafetyDisposition, UserMessage
 from carmind.evidence import FrozenEvidenceSnapshot
 from carmind.ownership import CommandType, utc
@@ -235,7 +236,30 @@ class ProductService:
         active = self.store.session(session_id, owner_id)["active_vehicle_id"]
         return self.store.vehicle(owner_id, active, now) if active else None
 
-    def _proposal_copy(self, command, locale):
+    def _resolve_vehicle(self, owner_id, session_id, text, now):
+        """Match only explicit stored identifiers; ambiguous mentions never switch cars."""
+        vehicles = self.store.vehicles(owner_id, now)
+        if len(vehicles) < 2:
+            return None
+        lowered = text.casefold()
+        matches = []
+        for candidate in vehicles:
+            names = (candidate.nickname, candidate.profile.model,
+                     f"{candidate.profile.year} {candidate.profile.make} {candidate.profile.model}",
+                     candidate.profile.vehicle_id)
+            if any(name and len(name) >= 3 and re.search(r"(?<!\w)" + re.escape(name.casefold()) + r"(?!\w)", lowered)
+                   for name in names):
+                matches.append(candidate)
+        if len(matches) == 1:
+            selected = matches[0]
+            if self.store.session(session_id, owner_id)["active_vehicle_id"] != selected.profile.vehicle_id:
+                self.app.select_vehicle(owner_id, session_id, selected.profile.vehicle_id, now=now)
+            return None
+        if matches or not self.store.session(session_id, owner_id)["selection_explicit"]:
+            return vehicles
+        return None
+
+    def _proposal_copy(self, command, locale, *, now=None):
         args = command.arguments
         kind = command.kind
         correction = (" " + _copy(locale,
@@ -264,6 +288,29 @@ class ProductService:
         if kind == CommandType.SELECT_VEHICLE:
             return _copy(locale, f"I'll switch to vehicle {args['vehicle_id']}. Confirm?",
                          f"بغيّر السيارة إلى {args['vehicle_id']}. تأكد؟")
+        if kind == CommandType.CREATE_SERVICE_REQUEST:
+            services = ", ".join(_service_name(item, locale) for item in args["requested_services"]) or args["intent_type"].replace("_", " ")
+            details = ""
+            if args["symptoms"]:
+                details += _copy(locale, " Reported symptoms: ", " الأعراض المبلغ عنها: ") + "; ".join(args["symptoms"]) + "."
+            for field, english, arabic in (("preferred_time_window", "Preferred time", "الوقت المفضل"),
+                                           ("preferred_location", "Preferred location", "الموقع المفضل")):
+                if field in args:
+                    details += f" {arabic if locale == 'ar' else english}: {args[field]}."
+            intent = args["intent_type"].replace("_", " ")
+            return _copy(locale,
+                f"I'll create a {intent} request for {services}. This does not book an appointment.",
+                f"بجهز طلب خدمة ({intent}) لـ {services}. هذا لا يحجز موعدًا.") + details + _copy(locale, " Confirm?", " تأكد؟")
+        if kind == CommandType.BOOK_DEMO_SLOT:
+            slot = next((item for item in demo_slots(now) if item.slot_id == args["slot_id"]), None) if now else None
+            when = slot.starts_at.astimezone(self.display_timezone).strftime("%d %b %Y %H:%M %Z") if slot else args["slot_id"]
+            return _copy(locale,
+                f"I'll create a SIMULATED booking at {when}. No dealer is contacted. Confirm?",
+                f"بجهز حجزًا تجريبيًا في الموعد {when}. لن يتم التواصل مع وكيل. تأكد؟")
+        if kind == CommandType.REQUEST_HUMAN_HANDOFF:
+            return _copy(locale,
+                f"I'll prepare a local request for human follow-up. Reason: {args['reason']}. No advisor has been contacted. Confirm?",
+                f"بجهز طلب متابعة بشرية محليًا. السبب: {args['reason']}. لم يتم التواصل مع مستشار. تأكد؟")
         return _copy(locale, f"I'll acknowledge reminder {args['reminder_id']}; this does not record completed service. Confirm?",
                      f"بأكد استلام التذكير {args['reminder_id']}؛ هذا لا يسجل إتمام الصيانة. تأكد؟")
 
@@ -307,12 +354,33 @@ class ProductService:
         sources = self._manual_sources(result)
         if result.proposed_commands:
             proposal = result.proposed_commands[0]
-            text = self._proposal_copy(proposal.command, locale)
+            text = self._proposal_copy(proposal.command, locale, now=now)
+            if proposal.command.kind in (CommandType.CREATE_SERVICE_REQUEST, CommandType.BOOK_DEMO_SLOT,
+                                          CommandType.REQUEST_HUMAN_HANDOFF):
+                text = _label(vehicle) + ": " + text
+                linked_id = proposal.command.arguments.get("service_request_id")
+                if linked_id:
+                    linked = self.store.service_request(owner_id, vehicle.profile.vehicle_id, linked_id)
+                    if linked:
+                        work = ", ".join(_service_name(item, locale) for item in linked["data"]["requested_services"])
+                        text += _copy(locale, " Linked requested work: ", " الخدمات المطلوبة المرتبطة: ") + work + "."
             proposal_id = proposal.proposal_id
             proposal_card = {"kind": proposal.command.kind.value,
                              "arguments": proposal.command.arguments}
         elif result.status == "applied":
-            text = _copy(locale, "Done. I've saved that change.", "تم، حفظت التغيير.")
+            fields = {field for command in result.applied_commands for field in command.changed_fields}
+            if "service_request" in fields:
+                text = _copy(locale,
+                    "Your service request is saved locally. No dealer booking exists.",
+                    "حفظت طلب الخدمة محليًا. لا يوجد حجز حقيقي.")
+            elif "demo_booking" in fields:
+                text = _copy(locale, "SIMULATION: a demo appointment was recorded locally. No dealer was contacted.",
+                             "تجربة فقط: تم حفظ موعد تجريبي محليًا. لم يتم التواصل مع وكيل.")
+            elif "handoff_request" in fields:
+                text = _copy(locale, "A human follow-up request was prepared locally. No advisor has been contacted.",
+                             "تم تجهيز طلب متابعة بشرية محليًا. لم يتم التواصل مع مستشار.")
+            else:
+                text = _copy(locale, "Done. I've saved that change.", "تم، حفظت التغيير.")
             proposal_id = None
             proposal_card = None
         elif result.status == "no_active_vehicle":
@@ -517,9 +585,18 @@ class ProductService:
                                            "تأكيد السيارة هذا ما عاد متاح."), "error")
         elif proposal_id:
             result = self.app.handle_message(owner_id, session_id, message, now=now,
-                                             confirmation_id=proposal_id)
+                                             confirmation_id=proposal_id, source_channel=inbound.channel)
             reply = self._productize(result, owner_id, session_id, now, locale)
         else:
+            vehicle = self._vehicle(owner_id, session_id, now)
+            ambiguity = self._resolve_vehicle(owner_id, session_id, inbound.text, now) if vehicle else None
+            if ambiguity:
+                names = ", ".join(_label(item) for item in ambiguity[:5])
+                reply = ProductReply(_copy(locale,
+                    f"Which of your cars do you mean: {names}? Please name the car or select it.",
+                    f"أي سيارة تقصد: {names}؟ اذكر السيارة أو اخترها."), "clarification_required")
+                self._save_reply(inbound, reply)
+                return reply
             vehicle = self._vehicle(owner_id, session_id, now)
             related_event_id = inbound.related_event_id
             if related_event_id is None and inbound.channel == "whatsapp" and vehicle is not None:
@@ -560,7 +637,8 @@ class ProductService:
                                      vehicle.profile.vehicle_id, _label(vehicle), safety_notice=notice)
             else:
                 result = self.app.handle_message(owner_id, session_id, message, now=now,
-                                                 snapshot=inbound.snapshot, related_event_id=related_event_id)
+                                                 snapshot=inbound.snapshot, related_event_id=related_event_id,
+                                                 source_channel=inbound.channel)
                 reply = self._productize(result, owner_id, session_id, now, locale)
         self._save_reply(inbound, reply)
         return reply
@@ -629,8 +707,23 @@ class ProductService:
                                           "market": s.market} for s in request.pack.sources] if request else []},
             "documents": list(self.manual_documents(channel, external_user_id, target, now=now)),
             "needs_attention": self.proactive_events(channel, external_user_id, target, now=now),
+            "service_requests": self.store.service_requests(owner_id, target),
+            "demo_bookings": self.store.demo_bookings(owner_id, target),
+            "handoffs": self.store.handoffs(owner_id, target),
+            "business_events": self.store.business_events(owner_id, target, limit=20),
             "notification_preferences": self.notification_preferences(channel, external_user_id),
         }
+
+    def aftersales_analytics(self, channel, external_user_id):
+        """Owner-scoped local counts; never sends event data to a CRM."""
+        bound = self.store.binding(channel, external_user_id)
+        if not bound:
+            raise ValueError("Unknown product identity.")
+        types = ("maintenance_due", "maintenance_completed", "service_interest",
+                 "booking_intent", "service_request_created", "human_handoff_requested")
+        counts = {name: 0 for name in types}
+        counts.update(self.store.business_event_counts(bound["owner_id"]))
+        return counts
 
     def select_vehicle(self, channel, external_user_id, vehicle_id, *, now):
         bound = self.store.binding(channel, external_user_id)

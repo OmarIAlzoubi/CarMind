@@ -24,8 +24,8 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_development_cases_are_labelled_and_complete(self):
         cases = load_cases()
-        self.assertEqual(len(cases), 10)
-        self.assertEqual(len({case["case_id"] for case in cases}), 10)
+        self.assertEqual(len(cases), 13)
+        self.assertEqual(len({case["case_id"] for case in cases}), 13)
         for case in cases:
             self.assertTrue(case["expected"]["capabilities"])
             self.assertTrue(case.get("message") or make_inputs(case).snapshot.owner_message.text)
@@ -78,7 +78,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(routed["routing"]["raw_selected_capabilities"], ())
         self.assertTrue(routed["routing"]["fallback_used"])
         self.assertEqual(routed["routing"]["fallback_reason"], "borderline_relevance")
-        self.assertEqual(routed["capability_count"], 10)
+        self.assertEqual(routed["capability_count"], 11)
 
     def test_summary_reports_quality_regression_honestly(self):
         rows = []

@@ -138,7 +138,7 @@ class RoutingTests(unittest.TestCase):
         unknown = FakeCapabilityRouter(RouterResponse(scores))
         trace = RoutingTrace("ROUTED")
         loaded = select_capabilities(unknown, build_routing_state(self.snapshot), self.registry, RoutingPolicy(), trace)
-        self.assertEqual(loaded.capability_count, 10)
+        self.assertEqual(loaded.capability_count, 11)
         self.assertTrue(trace.fallback_used)
         self.assertEqual(trace.fallback_reason, "unknown_capability")
 
@@ -213,7 +213,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(trace.raw_selected_capabilities, keys[:2])
         self.assertEqual(tuple(pack.id for pack in loaded.packs), keys[:2])
 
-    def test_recorded_jev_scores_replay_without_full_fallback(self):
+    def test_recorded_jev_scores_require_fallback_after_registry_expansion(self):
         # Fixed observation from the one live request; this test makes no API call.
         scores = {
             "battery": 0.03, "cooling": 0.04, "diagnostic_codes": 0.17,
@@ -227,15 +227,17 @@ class RoutingTests(unittest.TestCase):
             self.registry, RoutingPolicy(), trace,
         )
         self.assertEqual(trace.raw_selected_capabilities, ("tires",))
-        self.assertEqual(trace.effective_loaded_capabilities, ("tires",))
-        self.assertFalse(trace.fallback_used)
+        self.assertEqual(trace.effective_loaded_capabilities,
+                         tuple(pack.id for pack in self.registry.load_all_capabilities().packs))
+        self.assertTrue(trace.fallback_used)
+        self.assertEqual(trace.fallback_reason, "incomplete_relevance")
 
     def test_router_exceptions_and_timeout_are_explicit_fallbacks(self):
         for error, reason in ((RouterFailure("api_failure"), "api_failure"), (TimeoutError(), "timeout")):
             trace = RoutingTrace("ROUTED")
             router = FakeCapabilityRouter(error)
             loaded = select_capabilities(router, build_routing_state(self.snapshot), self.registry, RoutingPolicy(), trace)
-            self.assertEqual(loaded.capability_count, 10)
+            self.assertEqual(loaded.capability_count, 11)
             self.assertTrue(trace.fallback_used)
             self.assertEqual(trace.fallback_reason, reason)
 
@@ -251,7 +253,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(full.planner.result.safety, routed.planner.result.safety)
         self.assertEqual(full.planner.trace.tool_ids_called, routed.planner.trace.tool_ids_called)
         self.assertEqual(full.planner.trace.completion_status, routed.planner.trace.completion_status)
-        self.assertEqual(full.planner.trace.exposed_capability_count, 10)
+        self.assertEqual(full.planner.trace.exposed_capability_count, 11)
         self.assertEqual(routed.planner.trace.exposed_capability_count, 1)
         self.assertLess(routed.planner.trace.exposed_tool_count, full.planner.trace.exposed_tool_count)
 

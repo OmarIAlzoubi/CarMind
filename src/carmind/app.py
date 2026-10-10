@@ -1,6 +1,6 @@
 """Transport-independent ownership application using the existing reasoning stack."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 import json
@@ -9,6 +9,8 @@ from time import perf_counter
 from uuid import uuid4
 
 from carmind.assessment import ValidatedAssessment
+from carmind.aftersales import (ServiceRequest, demo_slots, handoff_packet,
+                               InformationNeed, missing_information)
 from carmind.contracts import MaintenanceRecord, SafetyDisposition, UserMessage, VehicleProfile
 from carmind.evidence import FrozenEvidenceSnapshot
 from carmind.maintenance import reminder_events
@@ -79,6 +81,13 @@ class CarMindApp:
         self.max_model_calls = max_model_calls
         self.manual_index = manual_index
         self.proactive = ProactiveService(self)
+
+    def _business_event(self, event_type, owner_id, vehicle_id, source_channel, source_entity_id, now, payload):
+        key = f"{event_type}:{source_entity_id}"
+        self.store.save_business_event({"id": "business-" + sha256(key.encode()).hexdigest()[:24],
+            "event_type": event_type, "occurred_at": now, "owner_id": owner_id,
+            "vehicle_id": vehicle_id, "source_channel": source_channel,
+            "source_entity_id": source_entity_id, "dedupe_key": key, "payload": payload})
 
     def evaluate_proactive_state(self, *, now, owner_id=None, vehicle_id=None):
         """Explicit scheduler/operator entry point; it never sends messages."""
@@ -267,6 +276,13 @@ class CarMindApp:
         previous = next((json.loads(t["summary"]) for t in reversed(turns) if t["summary"]), None)
         metadata = {"vehicle_id": vehicle_id, "nickname": vehicle.nickname, "trim": vehicle.trim,
                     "market": vehicle.market, "odometer_unit": vehicle.odometer_unit}
+        readings = [row for row in self.store.odometer_events(vehicle_id)
+                    if datetime.fromisoformat(row["occurred_at"]) <= now]
+        latest = max(readings, key=lambda row: (row["occurred_at"], row["id"]), default=None)
+        metadata["odometer_recorded_at"] = latest["occurred_at"] if latest else None
+        metadata["odometer_stale"] = (latest is None or
+            now - datetime.fromisoformat(latest["occurred_at"]) >=
+            timedelta(days=self.proactive.policy.odometer_stale_days))
         reminders = tuple({"reminder_id": r["id"], "lifecycle": r["lifecycle"],
                            **{k: r["facts"][k] for k in ("maintenance_item", "status", "due_date", "due_odometer_km", "source_id", "manufacturer_rule_id")}}
                           for r in self.store.reminders(vehicle_id, active_only=True)[:8])
@@ -275,9 +291,18 @@ class CarMindApp:
         active_event = ({key: event[key] for key in ("id", "event_type", "maintenance_item", "due_km", "due_date",
                                                    "source_type", "source_id", "rule_id", "source_page")}
                         if event and event["status"] != "RESOLVED" else None)
+        index = self.manual_index.for_vehicle(vehicle_id) if hasattr(self.manual_index, "for_vehicle") else self.manual_index
+        sources = (tuple(index.sources.values()) if hasattr(index, "sources") else
+                   (index.source,) if hasattr(index, "source") else ())
+        manual_applicable = any(source.applicability(vehicle.profile, vehicle.market) == "verified_applicable"
+                                for source in sources)
+        gaps = {need.value: tuple(gap.value for gap in missing_information(need, vehicle.profile,
+                market=vehicle.market, odometer_at=datetime.fromisoformat(latest["occurred_at"]) if latest else None,
+                now=now, source_available=bool(request) if need == InformationNeed.MAINTENANCE_TIMING else manual_applicable,
+                stale_after_days=self.proactive.policy.odometer_stale_days)) for need in InformationNeed}
         return OwnershipContext(metadata, services, "APPLICABLE" if request else "UNKNOWN", reminders,
                                 tuple({"text": t["text"], "timestamp": t["timestamp"], "status": t["status"]} for t in turns),
-                                previous, active_event=active_event)
+                                previous, active_event=active_event, information_gaps=gaps)
 
     def _odometer_write(self, event_id, vehicle_id, args, now, message_id):
         occurred = datetime.fromisoformat(args["occurred_at"])
@@ -290,10 +315,12 @@ class CarMindApp:
                 raise OdometerConflict("Odometer conflict: this reading contradicts the accepted timeline.")
         self.store.record_odometer(event_id, vehicle_id, km, args["reading"], args["unit"], occurred, now, message_id)
 
-    def _apply(self, row, command, owner_id, session_id, now):
+    def _apply(self, row, command, owner_id, session_id, now, safety):
         args, kind, vehicle_id = command.arguments, command.kind, row["vehicle_id"]
-        self.store.vehicle(owner_id, vehicle_id, now)
+        vehicle = self.store.vehicle(owner_id, vehicle_id, now)
+        source_channel = json.loads(row["payload"]).get("source_channel", "local")
         entity = row["id"] + "-event"
+        provenance = "USER_REPORTED_CONFIRMED"
         if kind == CommandType.UPDATE_ODOMETER:
             if "supersedes_id" in args:
                 # A service-linked reading must be corrected through that service.
@@ -319,6 +346,8 @@ class CarMindApp:
                                      {"reading": args["odometer"], "unit": args["unit"], "occurred_at": args["performed_at"]}, now, row["message_id"])
             self.store.record_service(entity, vehicle_id, record, now, row["message_id"])
             fields = ("service_history", "odometer_history") if km is not None else ("service_history",)
+            self._business_event("maintenance_completed", owner_id, vehicle_id, source_channel, entity, now,
+                                 {"service_type": record.service_type, "record_id": entity})
         elif kind == CommandType.SET_VEHICLE_FIELD:
             self.store.set_vehicle_field(vehicle_id, args["field"], args["value"], now)
             entity, fields = vehicle_id, (args["field"],)
@@ -336,9 +365,67 @@ class CarMindApp:
             entity = self.proactive.add_owner_reminder(owner_id, vehicle_id, args["maintenance_item"], now=now,
                 after_km=args.get("after_km"), after_months=args.get("after_months"), within_transaction=True)
             fields = ("owner_reminder",)
+        elif kind == CommandType.CREATE_SERVICE_REQUEST:
+            _, maintenance = self.read_maintenance(owner_id, vehicle_id, now=now)
+            items = tuple({"item": item.maintenance_item, "status": item.status,
+                "source_id": item.source_id, "rule_id": item.manufacturer_rule_id,
+                "evidence_id": item.reminder_id} for item in maintenance
+                if item.status in ("UPCOMING", "DUE", "OVERDUE"))[:3]
+            service_ids = tuple(r.record_id for r in self.store.service_records(vehicle_id, now, limit=3))
+            reading = self.proactive._latest_reading(vehicle_id, now)
+            request = ServiceRequest(entity, owner_id, vehicle_id, now, source_channel,
+                args["intent_type"], tuple(args["requested_services"]), tuple(args["symptoms"]),
+                vehicle.profile.mileage_km, service_ids, safety.disposition.value,
+                args.get("preferred_time_window"), args.get("preferred_location"),
+                maintenance_items=items,
+                evidence_ids=tuple(dict.fromkeys((*service_ids, *(item["evidence_id"] for item in items), *safety.evidence_ids))),
+                odometer_recorded_at=reading["occurred_at"] if reading else None)
+            self.store.save_service_request(request)
+            self._business_event("service_request_created", owner_id, vehicle_id, source_channel,
+                                 entity, now, {"intent_type": request.intent_type,
+                                               "requested_service_count": len(request.requested_services)})
+            fields = ("service_request",)
+            provenance = "CONFIRMED_CUSTOMER_SERVICE_REQUEST"
+        elif kind == CommandType.BOOK_DEMO_SLOT:
+            request = self.store.service_request(owner_id, vehicle_id, args["service_request_id"])
+            if request is None:
+                raise ValueError("Unknown service request for this vehicle.")
+            if self.store.active_demo_booking(owner_id, vehicle_id, request["id"]):
+                raise ValueError("This request already has a simulated booking.")
+            slot = next((s for s in demo_slots(now) if s.slot_id == args["slot_id"]), None)
+            if slot is None:
+                raise ValueError("That demo slot is no longer available.")
+            self.store.save_demo_booking(entity, request["id"], owner_id, vehicle_id, slot, now)
+            fields = ("demo_booking",)
+            provenance = "SIMULATED_BOOKING"
+        elif kind == CommandType.REQUEST_HUMAN_HANDOFF:
+            request_id = args.get("service_request_id")
+            request = self.store.service_request(owner_id, vehicle_id, request_id) if request_id else None
+            if request_id and request is None:
+                raise ValueError("Unknown service request for this vehicle.")
+            if request:
+                structured = replace(ServiceRequest.from_data(request["data"]),
+                    current_mileage_km=vehicle.profile.mileage_km,
+                    safety_disposition=safety.disposition.value,
+                    evidence_ids=tuple(dict.fromkeys((*request["data"].get("evidence_ids", ()), *safety.evidence_ids))))
+                packet = handoff_packet(structured,
+                    vehicle.nickname or f"{vehicle.profile.year} {vehicle.profile.make} {vehicle.profile.model}")
+            else:
+                packet = {"schema_version": 1, "vehicle": {"id": vehicle_id,
+                    "label": vehicle.nickname or f"{vehicle.profile.year} {vehicle.profile.make} {vehicle.profile.model}",
+                    "mileage_km": vehicle.profile.mileage_km}, "reason": args["reason"],
+                    "safety_disposition": safety.disposition.value,
+                    "evidence_ids": list(safety.evidence_ids)}
+            packet["reason"] = args["reason"]
+            self.store.save_handoff(entity, owner_id, vehicle_id, request_id, packet, now)
+            self._business_event("human_handoff_requested", owner_id, vehicle_id, source_channel,
+                                 entity, now, {"handoff_id": entity})
+            fields = ("handoff_request",)
+            provenance = "LOCAL_HUMAN_HANDOFF_REQUEST"
         else:
             raise ValueError("Unsupported ownership command.")
-        return MutationResult(True, "confirmed_owner_fact", entity, fields, now)
+        return MutationResult(True, "confirmed_owner_fact" if provenance == "USER_REPORTED_CONFIRMED" else "confirmed_workflow",
+                              entity, fields, now, provenance)
 
     @staticmethod
     def _proposal_from_row(row):
@@ -377,7 +464,7 @@ class CarMindApp:
                                "nickname": vehicle.nickname}.get(precondition["field"])
                     if current != precondition["expected_value"]:
                         raise StaleProposal("That vehicle detail changed while you reviewed the proposal. Please describe the update again.")
-                result = self._apply(row, command, owner_id, session_id, now)
+                result = self._apply(row, command, owner_id, session_id, now, safety)
                 selected_vehicle = self.store.session(session_id, owner_id)["active_vehicle_id"]
                 if selected_vehicle != row["vehicle_id"]:
                     selected = self.store.vehicle(owner_id, selected_vehicle, now)
@@ -413,6 +500,13 @@ class CarMindApp:
         elif command.kind == CommandType.CREATE_OWNER_REMINDER:
             target = f"in {a['after_km']:g} km" if "after_km" in a else f"after {a['after_months']} months"
             text = f"Create your {a['maintenance_item'].replace('_', ' ')} reminder {target}. This is your reminder, not manufacturer guidance."
+        elif command.kind == CommandType.CREATE_SERVICE_REQUEST:
+            work = ", ".join(a["requested_services"]) or a["intent_type"].replace("_", " ")
+            text = f"Create a service request for {work}. This does not book a dealer appointment."
+        elif command.kind == CommandType.BOOK_DEMO_SLOT:
+            text = f"Create a SIMULATED booking for request {a['service_request_id']} in demo slot {a['slot_id']}. No dealer is contacted."
+        elif command.kind == CommandType.REQUEST_HUMAN_HANDOFF:
+            text = "Prepare a local human-handoff request. No external service advisor is contacted."
         else:
             text = f"Acknowledge maintenance reminder {a['reminder_id']}. This does not record completed service."
         if "supersedes_id" in a:
@@ -452,7 +546,7 @@ class CarMindApp:
 
     def handle_message(self, owner_id: str, session_id: str, message: UserMessage, *, now,
                        snapshot: FrozenEvidenceSnapshot | None = None, confirmation_id: str | None = None,
-                       related_event_id: str | None = None) -> TurnResult:
+                       related_event_id: str | None = None, source_channel: str = "local") -> TurnResult:
         """Confirmation is an adapter control, never parsed from chat or model output.
 
         The adapter must display proposed_commands and confirm the exact proposal
@@ -537,6 +631,13 @@ class CarMindApp:
             ownership.pop("recent_services")
             if ownership["active_event"] is None:
                 ownership.pop("active_event")
+            recent_requests = self.store.service_requests(owner_id, vehicle_id)[:3]
+            if recent_requests:
+                ownership["aftersales"] = {
+                    "service_requests": [{"id": item["id"], "intent_type": item["data"]["intent_type"],
+                                          "requested_services": item["data"]["requested_services"]}
+                                         for item in recent_requests],
+                    "demo_slots": [{"id": slot.slot_id, "label": slot.label} for slot in demo_slots(now)]}
             trace.ownership_context_characters = len(encode(ownership))
             manual_index = (self.manual_index.for_vehicle(vehicle_id)
                             if hasattr(self.manual_index, "for_vehicle") else self.manual_index)
@@ -568,6 +669,15 @@ class CarMindApp:
                         rejected = (MutationResult(False, "uncertain_owner_statement", None, (), now),)
                         trace.rejected_command_ids.append("uncertain_proposal")
                     else:
+                        if proposal.kind in (CommandType.BOOK_DEMO_SLOT, CommandType.REQUEST_HUMAN_HANDOFF):
+                            request_id = proposal.arguments.get("service_request_id")
+                            if request_id and self.store.service_request(owner_id, vehicle_id, request_id) is None:
+                                raise ValueError("Service request is not available for this vehicle.")
+                            if proposal.kind == CommandType.BOOK_DEMO_SLOT and not any(
+                                    slot.slot_id == proposal.arguments["slot_id"] for slot in demo_slots(now)):
+                                raise ValueError("Demo slot is not available.")
+                            if proposal.kind == CommandType.BOOK_DEMO_SLOT and self.store.active_demo_booking(owner_id, vehicle_id, request_id):
+                                raise ValueError("This request already has a simulated booking.")
                         proposal_id = "command-" + str(uuid4())
                         expires = now + timedelta(days=1)
                         preconditions = None
@@ -577,7 +687,14 @@ class CarMindApp:
                                        "nickname": vehicle.nickname}.get(field)
                             preconditions = {"profile_field": {"field": field, "expected_value": current}}
                         self.store.add_proposal(proposal_id, session_id, vehicle_id, message.message_id, proposal, now, expires,
-                                                preconditions)
+                                                preconditions, source_channel=source_channel)
+                        if proposal.kind == CommandType.CREATE_SERVICE_REQUEST:
+                            self._business_event("service_interest", owner_id, vehicle_id, source_channel,
+                                                 message.message_id, now, {"intent_type": proposal.arguments["intent_type"]})
+                        elif proposal.kind == CommandType.BOOK_DEMO_SLOT:
+                            self._business_event("booking_intent", owner_id, vehicle_id, source_channel,
+                                                 message.message_id, now,
+                                                 {"service_request_id": proposal.arguments["service_request_id"]})
                         proposals = (CommandProposal(proposal_id, proposal, expires),)
                         trace.proposed_command_ids.append(proposal_id)
                         status = "confirmation_required"

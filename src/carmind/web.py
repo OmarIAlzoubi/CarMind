@@ -23,7 +23,10 @@ from carmind.storage import OwnershipStore
 PAGE = Path(__file__).with_name("web_static") / "index.html"
 
 
-def make_handler(service, *, web_identity="local-web-user", live=False):
+def make_handler(service, *, web_identity="local-web-user", live=False, twilio_gateway=None,
+                 webhook_only=None):
+    if webhook_only is None:
+        webhook_only = twilio_gateway is not None
     class Handler(BaseHTTPRequestHandler):
         def _json(self, status, data):
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -35,6 +38,9 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
             self.wfile.write(body)
 
         def do_GET(self):
+            if webhook_only:
+                self._json(404, {"error": "Not found"})
+                return
             path = urlsplit(self.path).path
             if path == "/":
                 body = PAGE.read_bytes()
@@ -45,10 +51,13 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
                 self.wfile.write(body)
                 return
             if path not in ("/api/overview", "/api/vehicles", "/api/services", "/api/reminders",
-                            "/api/manual/status", "/api/proactive/events"):
+                            "/api/manual/status", "/api/proactive/events", "/api/aftersales/analytics"):
                 self._json(404, {"error": "Not found"})
                 return
             try:
+                if path == "/api/aftersales/analytics":
+                    self._json(200, service.aftersales_analytics("web", web_identity))
+                    return
                 overview = service.overview("web", web_identity, now=datetime.now(timezone.utc))
                 if path == "/api/vehicles":
                     data = overview.get("vehicles", [])
@@ -68,6 +77,43 @@ def make_handler(service, *, web_identity="local-web-user", live=False):
 
         def do_POST(self):
             path = urlsplit(self.path).path
+            if path in ("/webhooks/twilio/whatsapp/inbound", "/webhooks/twilio/whatsapp/status"):
+                if twilio_gateway is None:
+                    self._json(404, {"error": "Not found"})
+                    return
+                try:
+                    if urlsplit(self.path).query:
+                        raise ValueError("Unexpected webhook query")
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if (size < 1 or size > 8192 or
+                            self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded"):
+                        raise ValueError("Invalid webhook request")
+                    raw = self.rfile.read(size)
+                    signature = self.headers.get("X-Twilio-Signature", "")
+                    if path.endswith("/inbound"):
+                        body = twilio_gateway.inbound(raw, signature).encode("utf-8")
+                        content_type = "text/xml; charset=utf-8"
+                    else:
+                        twilio_gateway.status(raw, signature)
+                        body, content_type = b"", "text/plain; charset=utf-8"
+                    self.send_response(200)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except PermissionError:
+                    self._json(403, {"error": "Webhook rejected"})
+                except (ValueError, TypeError):
+                    self._json(400, {"error": "Invalid webhook request"})
+                except RuntimeError:
+                    self._json(503, {"error": "Webhook temporarily unavailable"})
+                except Exception:
+                    self._json(503, {"error": "Webhook temporarily unavailable"})
+                return
+            if webhook_only:
+                self._json(404, {"error": "Not found"})
+                return
             if path not in ("/api/chat", "/api/confirm", "/api/vehicle/select", "/api/proposal/cancel",
                             "/api/manual/upload", "/api/proactive/preferences", "/api/proactive/ack",
                             "/api/proactive/explain"):
@@ -178,6 +224,8 @@ def main(argv=None):
     parser.add_argument("--manual-index", type=Path, default=DEFAULT_INDEX)
     parser.add_argument("--manual-source", type=Path, help="Registered local manual_source.json")
     parser.add_argument("--link-whatsapp-sender", help="Trusted local demo link to an existing sender")
+    parser.add_argument("--twilio-webhooks", action="store_true",
+                        help="Explicitly enable signed Twilio WhatsApp webhook routes")
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("Port must be between 1 and 65535")
@@ -203,15 +251,27 @@ def main(argv=None):
                     timeout_seconds=args.timeout_seconds,
                     max_model_calls=args.max_calls_per_turn, manual_index=manual_index),
                     activity_logger=print)
-        if args.link_whatsapp_sender:
+        gateway = None
+        if args.twilio_webhooks:
+            from carmind.twilio_gateway import TwilioConfig, TwilioGateway
+            try:
+                gateway = TwilioGateway(service, TwilioConfig.from_environment())
+            except (ValueError, ImportError) as exc:
+                parser.error(str(exc))
+        if args.twilio_webhooks:
+            if args.link_whatsapp_sender:
+                parser.error("Local Web linking is unavailable on the webhook-only listener")
+        elif args.link_whatsapp_sender:
             existing = store.binding("whatsapp", args.link_whatsapp_sender)
             if not existing:
                 parser.error("That sender is not present in this local database")
             service.bind_existing("web", "local-web-user", existing["owner_id"], existing["session_id"])
         else:
             service._identity("web", "local-web-user", datetime.now(timezone.utc))
-        server = HTTPServer(("127.0.0.1", args.port), make_handler(service, live=args.live))
-        print(f"CarMind local web ({'live' if args.live else 'offline'}): http://127.0.0.1:{args.port}")
+        server = HTTPServer(("127.0.0.1", args.port), make_handler(service, live=args.live,
+                          twilio_gateway=gateway, webhook_only=args.twilio_webhooks))
+        surface = "signed Twilio webhooks" if args.twilio_webhooks else "local web"
+        print(f"CarMind {surface} ({'live' if args.live else 'offline'}): http://127.0.0.1:{args.port}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:

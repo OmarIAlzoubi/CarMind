@@ -390,13 +390,14 @@ class ProductTests(unittest.TestCase):
                           "proactive_events", "owner_reminders",
                           "notification_preferences", "external_receipts", "vehicle_drafts", "channel_bindings"):
                 db.execute(f"DROP TABLE {table}")
+            db.execute("ALTER TABLE sessions DROP COLUMN selection_explicit")
             db.execute("PRAGMA user_version=1")
             db.commit()
         finally:
             db.close()
         migrated = OwnershipStore(self.path)
         try:
-            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(migrated.db.execute("SELECT id FROM owners").fetchone()[0], "old-owner")
             self.assertEqual(migrated.db.execute("SELECT count(*) FROM channel_bindings").fetchone()[0], 0)
         finally:

@@ -69,7 +69,7 @@ class LocalRunnerTests(unittest.TestCase):
             full_run, full_meter = run_case("full", full, model="fake", write=lambda _: None)
         self.assertEqual(routed_run.routing.initial_loaded_capabilities, ("tires",))
         self.assertEqual(routed_run.planner.trace.exposed_tool_count, 3)
-        self.assertEqual(full_run.planner.trace.exposed_capability_count, 10)
+        self.assertEqual(full_run.planner.trace.exposed_capability_count, 11)
         self.assertEqual(full_run.planner.trace.exposed_tool_count, 25)
         self.assertEqual((routed_meter.attempts, full_meter.attempts), (1, 1))
         routed_initial = json.loads(routed.requests[0][1]["content"])

@@ -2,7 +2,7 @@
   "id": "maintenance",
   "version": 1,
   "routing_description": "Maintenance timing and reminder questions, owner-reported odometer readings, and what service information is available.",
-  "planner_instructions": "Read the manufacturer schedule, provenance and application-calculated maintenance state. Never calculate or invent intervals, due points or status. Match model, year, market and configuration exactly. UNKNOWN applicability or history must stay unknown. Upcoming windows are application policy, not manufacturer facts.",
+  "planner_instructions": "Read the manufacturer schedule, provenance and application-calculated maintenance state. Never calculate or invent intervals, due points or status. Match model, year, market and configuration exactly. UNKNOWN applicability or history must stay unknown. Upcoming windows are application policy, not manufacturer facts. When the owner asks what is due and current odometer data is missing or stale, ask for a fresh reading before making a mileage-based due claim. Do not ask for mileage when it does not matter to the question.",
   "tool_ids": [
     "get_due_maintenance_items",
     "get_latest_service_record",

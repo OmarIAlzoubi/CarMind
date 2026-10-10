@@ -1,0 +1,8 @@
+{
+  "id": "aftersales",
+  "version": 1,
+  "routing_description": "Service or inspection interest, preparing a customer service request, simulated appointment booking, or asking for a human service advisor. Include for a response to a maintenance reminder when the owner wants service.",
+  "planner_instructions": "Use stored vehicle and service facts, not invented specifications. For explicit service interest propose create_service_request with allowlisted service categories and owner-reported symptoms/preferences only. Never turn a diagnosis hypothesis into a customer symptom. For booking, require an existing owned service request. If the owner has not chosen a slot, ask a short clarification showing the available SIMULATION slots from ownership context; never choose a slot by default. After the owner chooses, propose book_demo_slot with that displayed slot ID and clearly label the simulation. A real dealer is never booked. For an explicit human follow-up request propose request_human_handoff. Do not propose these commands for general questions or routine advice. Use information_gaps only when material to the request. Unresolved safety guidance remains authoritative. A proposal is never an authorized write until exact confirmation.",
+  "tool_ids": ["get_vehicle_profile", "get_service_history", "get_due_maintenance_items", "get_upcoming_maintenance_items"],
+  "required_inputs": ["snapshot"]
+}

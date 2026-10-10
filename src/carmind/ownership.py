@@ -38,6 +38,20 @@ class CommandType(str, Enum):
     SELECT_VEHICLE = "select_vehicle"
     ACKNOWLEDGE_REMINDER = "acknowledge_reminder"
     CREATE_OWNER_REMINDER = "create_owner_reminder"
+    CREATE_SERVICE_REQUEST = "create_service_request"
+    BOOK_DEMO_SLOT = "book_demo_slot"
+    REQUEST_HUMAN_HANDOFF = "request_human_handoff"
+
+
+AFTERSALES_COMMANDS = frozenset({CommandType.CREATE_SERVICE_REQUEST.value,
+                               CommandType.BOOK_DEMO_SLOT.value,
+                               CommandType.REQUEST_HUMAN_HANDOFF.value})
+
+
+def command_schemas_for(capability_ids):
+    """Keep legacy ownership commands; expose aftersales writes only in its pack."""
+    return {key: value for key, value in COMMAND_SCHEMAS.items()
+            if key not in AFTERSALES_COMMANDS or "aftersales" in capability_ids}
 
 
 class OdometerConflict(ValueError):
@@ -49,6 +63,7 @@ class StaleProposal(ValueError):
 
 
 SERVICE_TYPES = ("oil", "oil_filter", "tires", "battery", "brakes", "coolant", "air_filter", "other")
+AFTERSALES_SERVICE_TYPES = (*SERVICE_TYPES, "inspection", "diagnostic", "scheduled_service")
 PROFILE_FIELDS = ("make", "model", "year", "engine", "trim", "market", "vin", "nickname")
 
 # Descriptions express structure, not natural-language intent classification.
@@ -64,6 +79,15 @@ COMMAND_SCHEMAS = {
     "create_owner_reminder": {"required": {"maintenance_item": list(SERVICE_TYPES)},
                               "optional": {"after_km": "positive km from a fresh saved odometer",
                                            "after_months": "positive calendar months, at most 120"}},
+    "create_service_request": {"required": {"intent_type": ["routine_maintenance", "inspection", "diagnostic", "repair_concern"],
+                                            "requested_services": "list of up to 5 categories: " + "|".join(AFTERSALES_SERVICE_TYPES),
+                                            "symptoms": "list of up to 5 short owner-reported symptoms"},
+                               "optional": {"preferred_time_window": "customer-provided window, at most 120 chars",
+                                            "preferred_location": "customer-provided location, at most 120 chars"}},
+    "book_demo_slot": {"required": {"service_request_id": "existing owned service request ID",
+                                     "slot_id": "one of the current simulated slot IDs"}},
+    "request_human_handoff": {"required": {"reason": "short customer-requested handoff reason"},
+                              "optional": {"service_request_id": "existing owned service request ID"}},
 }
 
 COMMAND_PROTOCOL = """
@@ -84,6 +108,10 @@ Conversation summaries are prior conversational context, NOT fresh telemetry or
 new citable evidence. Prior hypotheses remain unconfirmed. Ownership context and
 deterministic maintenance facts are application-owned. Use current read tools
 when you need citable persisted facts. Do not infer a repair from a conversation.
+The information_gaps map is application-calculated for each type of need. Ask
+only about gaps that matter to the current request; a generic question does not
+require manufacturer details. Missing sources require abstention, not invented
+specifications. Current vehicle facts are supplied independently of chat memory.
 """
 
 
@@ -147,7 +175,23 @@ def parse_command(raw: dict, owner_text: str) -> OwnershipCommand:
                 raise ValueError("Owner reminder distance must be positive.")
         if "after_months" in args and (type(args["after_months"]) is not int or not 1 <= args["after_months"] <= 120):
             raise ValueError("Owner reminder months must be between 1 and 120.")
-    for key in ("supersedes_id", "vehicle_id", "reminder_id"):
+    elif kind == CommandType.CREATE_SERVICE_REQUEST:
+        if args["intent_type"] not in COMMAND_SCHEMAS[kind.value]["required"]["intent_type"]:
+            raise ValueError("Unsupported service intent.")
+        for name in ("requested_services", "symptoms"):
+            values = args[name]
+            if (not isinstance(values, list) or len(values) > 5 or
+                    any(not isinstance(value, str) or not value.strip() or len(value) > 120 for value in values)):
+                raise ValueError("Invalid service request details.")
+        if any(value not in AFTERSALES_SERVICE_TYPES for value in args["requested_services"]):
+            raise ValueError("Unsupported service request category.")
+        for name in ("preferred_time_window", "preferred_location"):
+            if name in args and (not isinstance(args[name], str) or not args[name].strip() or len(args[name]) > 120):
+                raise ValueError("Invalid service preference.")
+    elif kind == CommandType.REQUEST_HUMAN_HANDOFF:
+        if not isinstance(args["reason"], str) or not args["reason"].strip() or len(args["reason"]) > 240:
+            raise ValueError("Invalid handoff reason.")
+    for key in ("supersedes_id", "vehicle_id", "reminder_id", "service_request_id", "slot_id"):
         if key in args:
             identifier(args[key])
     return OwnershipCommand(kind, args, raw["certainty"], quote)
@@ -192,3 +236,4 @@ class OwnershipContext:
     previous_assessment: dict | None
     retention: dict = field(default_factory=lambda: {"turns": 6, "services": 8, "reminders": 8})
     active_event: dict | None = None
+    information_gaps: dict[str, tuple[str, ...]] = field(default_factory=dict)

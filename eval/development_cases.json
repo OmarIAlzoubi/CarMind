@@ -26,11 +26,20 @@
     {"case_id": "code_history", "fixture": "ownership", "message": "What diagnostic codes appeared before?",
      "expected": {"capabilities": ["diagnostic_codes"], "codes": true},
      "script": {"selection": ["diagnostic_codes"], "tools": [{"tool_id": "get_diagnostic_code_history", "arguments": {}}], "cite_codes": true}},
+    {"case_id": "service_interest", "fixture": "ownership", "message": "I want to arrange a service inspection for my car.",
+     "expected": {"capabilities": ["aftersales"], "record_ids": ["owner-battery-service"]},
+     "script": {"selection": ["aftersales"], "tools": [{"tool_id": "get_service_history", "arguments": {}}], "cite_records": ["owner-battery-service"]}},
+    {"case_id": "booking_interest", "fixture": "ownership", "message": "Can I book a service appointment?",
+     "expected": {"capabilities": ["aftersales"], "record_ids": ["owner-battery-service"]},
+     "script": {"selection": ["aftersales"], "tools": [{"tool_id": "get_service_history", "arguments": {}}], "cite_records": ["owner-battery-service"]}},
+    {"case_id": "human_handoff", "fixture": "ownership", "message": "Please ask a service advisor to follow up with me.",
+     "expected": {"capabilities": ["aftersales"], "record_ids": ["owner-battery-service"]},
+     "script": {"selection": ["aftersales"], "tools": [{"tool_id": "get_service_history", "arguments": {}}], "cite_records": ["owner-battery-service"]}},
     {"case_id": "multiple_domains", "fixture": "multi_domain", "message": "My car struggles to start and one tire keeps losing pressure.",
      "expected": {"capabilities": ["battery", "tires"], "evidence_names": ["battery_voltage", "rear_left_tire_pressure"]},
      "script": {"selection": ["battery", "tires"], "tools": [{"tool_id": "get_battery_voltage_history", "arguments": {}}, {"tool_id": "get_tire_pressure_history", "arguments": {"wheel": "rear_left"}}], "cite_names": ["battery_voltage", "rear_left_tire_pressure"]}},
     {"case_id": "ambiguous", "fixture": "ownership", "message": "Something feels different with my car and I do not know where to start.",
-     "expected": {"capabilities": ["engine", "cooling", "battery", "electrical", "tires", "fuel_economy", "maintenance", "service_history", "diagnostic_codes", "trip_readiness"], "record_ids": ["owner-battery-service"]},
+     "expected": {"capabilities": ["engine", "cooling", "battery", "electrical", "tires", "fuel_economy", "maintenance", "service_history", "diagnostic_codes", "trip_readiness", "aftersales"], "record_ids": ["owner-battery-service"]},
      "script": {"borderline": true, "tools": [{"tool_id": "get_service_history", "arguments": {}}], "cite_records": ["owner-battery-service"], "hypothesis": "INSUFFICIENT_HISTORY"}}
   ]
 }

@@ -28,8 +28,13 @@ def main(argv=None):
             command.add_argument("--vehicle-id")
         if name in ("deliver", "cycle"):
             command.add_argument("--limit", type=int, default=50)
-            command.add_argument("--console", action="store_true",
-                                 help="Explicitly deliver console-channel reminders locally")
+            senders_group = command.add_mutually_exclusive_group()
+            senders_group.add_argument("--console", action="store_true",
+                                       help="Explicitly deliver console-channel reminders locally")
+            senders_group.add_argument("--twilio", action="store_true",
+                                       help="Explicitly use configured Twilio WhatsApp sender")
+            command.add_argument("--confirm-live-send", action="store_true",
+                                 help="Required for real Twilio delivery")
     listing = commands.add_parser("list")
     listing.add_argument("--owner-id")
     pending = commands.add_parser("pending")
@@ -39,11 +44,21 @@ def main(argv=None):
     try:
         if args.command in ("run", "deliver", "cycle"):
             now = utc(datetime.fromisoformat(args.now)) if args.now else datetime.now(timezone.utc)
-            if args.command != "run" and not args.console:
-                parser.error("Delivery needs an explicitly configured sender; use --console for local development")
+            if args.command != "run" and not (args.console or args.twilio):
+                parser.error("Delivery needs an explicitly configured sender; use --console or --twilio")
+            if getattr(args, "twilio", False) and not args.dry_run and not args.confirm_live_send:
+                parser.error("Real Twilio delivery requires --confirm-live-send")
+            if getattr(args, "confirm_live_send", False) and not getattr(args, "twilio", False):
+                parser.error("--confirm-live-send requires --twilio")
             senders = ({"console": ConsoleNotificationSender(
                 output=lambda text: print(text, file=sys.stderr if args.json else sys.stdout))}
                 if getattr(args, "console", False) else {})
+            if getattr(args, "twilio", False):
+                from carmind.twilio_gateway import TwilioConfig, notification_sender
+                try:
+                    senders["whatsapp"] = notification_sender(store, TwilioConfig.from_environment())
+                except (ValueError, ImportError) as exc:
+                    parser.error(str(exc))
             runner = ProactiveCycleRunner(compose_app(store), senders)
             if args.command == "run":
                 report = runner.evaluate(now=now, owner_id=args.owner_id,

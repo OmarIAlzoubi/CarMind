@@ -36,7 +36,7 @@ class OwnershipStorePathTests(unittest.TestCase):
             store = OwnershipStore(path)
             try:
                 self.assertTrue(path.is_file())
-                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 5)
             finally:
                 store.close()
 
@@ -44,7 +44,7 @@ class OwnershipStorePathTests(unittest.TestCase):
         with patch.object(Path, "mkdir", side_effect=AssertionError("No directory should be created")):
             store = OwnershipStore(":memory:")
             try:
-                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], 5)
             finally:
                 store.close()
 
@@ -115,7 +115,7 @@ class OwnershipAppTests(unittest.TestCase):
         self.assertEqual(self.store.session(self.session, self.owner)["active_vehicle_id"], "second")
         self.assertEqual(self.store.vehicle(self.owner, self.profile.vehicle_id, NOW).nickname, "Test car")
         self.assertEqual(self.store.db.execute("PRAGMA foreign_keys").fetchone()[0], 1)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 5)
 
     def test_no_active_vehicle_is_graceful_and_selectable(self):
         session = self.app.start_session(self.owner, now=NOW)
@@ -549,7 +549,7 @@ class OwnershipAppTests(unittest.TestCase):
         self.assertEqual(full.maintenance_state, routed.maintenance_state)
         self.assertEqual(full.safety, routed.safety)
         self.assertEqual(full.maintenance_applicability, "APPLICABLE")
-        self.assertEqual(full.trace.planner.exposed_capability_count, 10)
+        self.assertEqual(full.trace.planner.exposed_capability_count, 11)
         self.assertEqual(routed.trace.planner.exposed_capability_count, 2)
 
     def test_safety_followup_hides_model_clearance_and_service_cannot_clear_warning(self):

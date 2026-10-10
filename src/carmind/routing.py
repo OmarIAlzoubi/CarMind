@@ -121,6 +121,14 @@ def build_routing_state(snapshot, context=None, maintenance_request=None, *,
                                   if isinstance(x, str)],
             } if prior else None,
         }
+        aftersales = ownership_context.get("aftersales", {})
+        requests = aftersales.get("service_requests", ()) if isinstance(aftersales, dict) else ()
+        event = ownership_context.get("active_event")
+        state["follow_up_context"]["service_request_count"] = len(requests) if isinstance(requests, (tuple, list)) else 0
+        if isinstance(event, dict):
+            state["follow_up_context"]["active_reminder"] = {
+                key: str(event[key])[:80] for key in ("event_type", "maintenance_item")
+                if isinstance(event.get(key), str)}
     if previous_stop is not None:
         disposition = getattr(previous_stop, "disposition", None)
         state.setdefault("follow_up_context", {})["unresolved_safety"] = {

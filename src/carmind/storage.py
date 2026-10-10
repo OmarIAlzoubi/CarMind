@@ -135,6 +135,40 @@ CREATE INDEX notification_claims_expiry ON notification_claims(lease_until);
 PRAGMA user_version = 4;
 """
 
+MIGRATION_V5 = """
+ALTER TABLE sessions ADD COLUMN selection_explicit INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS service_requests (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id),
+ vehicle_id TEXT NOT NULL REFERENCES vehicles(id), created_at TEXT NOT NULL,
+ status TEXT NOT NULL, data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS service_requests_owner_vehicle ON service_requests(owner_id,vehicle_id,created_at);
+CREATE TABLE IF NOT EXISTS demo_bookings (
+ id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES service_requests(id),
+ owner_id TEXT NOT NULL REFERENCES owners(id), vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+ slot_id TEXT NOT NULL, starts_at TEXT NOT NULL, created_at TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('SIMULATED','CANCELLED')));
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_demo_booking ON demo_bookings(request_id) WHERE status='SIMULATED';
+CREATE TABLE IF NOT EXISTS handoff_requests (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id),
+ vehicle_id TEXT NOT NULL REFERENCES vehicles(id), request_id TEXT,
+ created_at TEXT NOT NULL, packet TEXT NOT NULL, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS business_events (
+ id TEXT PRIMARY KEY, event_type TEXT NOT NULL, schema_version INTEGER NOT NULL,
+ occurred_at TEXT NOT NULL, owner_id TEXT NOT NULL REFERENCES owners(id),
+ vehicle_id TEXT NOT NULL REFERENCES vehicles(id), source_channel TEXT NOT NULL,
+ source_entity_id TEXT NOT NULL, dedupe_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL,
+ external_sharing_consent INTEGER NOT NULL DEFAULT 0 CHECK(external_sharing_consent IN (0,1)));
+CREATE INDEX IF NOT EXISTS business_events_owner_vehicle ON business_events(owner_id,vehicle_id,occurred_at);
+CREATE TABLE IF NOT EXISTS twilio_inbound_receipts (
+ message_sid TEXT PRIMARY KEY, sender_hash TEXT NOT NULL,
+ response TEXT, received_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS twilio_delivery_status (
+ message_sid TEXT PRIMARY KEY, notification_id TEXT,
+ status TEXT NOT NULL, rank INTEGER NOT NULL, updated_at TEXT NOT NULL,
+ error_code TEXT);
+PRAGMA user_version = 5;
+"""
+
 
 def encode(value) -> str:
     return json.dumps(value, default=lambda x: x.isoformat() if isinstance(x, (date, datetime)) else x.value,
@@ -159,13 +193,15 @@ class OwnershipStore:
             self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
         elif version == 1:
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V2 + "\nCOMMIT;")
-        elif version not in (2, 3, 4):
+        elif version not in (2, 3, 4, 5):
             self.db.close()
             raise ValueError("Unsupported ownership database version.")
         if version in (0, 1, 2):
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V3 + "\nCOMMIT;")
         if version in (0, 1, 2, 3):
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V4 + "\nCOMMIT;")
+        if version in (0, 1, 2, 3, 4):
+            self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_V5 + "\nCOMMIT;")
 
     def close(self):
         self.db.close()
@@ -213,7 +249,8 @@ class OwnershipStore:
         if vehicle_id is not None:
             self.vehicle(owner_id, vehicle_id, now)
         stamp = utc(now).isoformat()
-        self.db.execute("INSERT INTO sessions VALUES (?,?,?,?,?)", (identifier(session_id), owner_id, vehicle_id, stamp, stamp))
+        self.db.execute("INSERT INTO sessions (id,owner_id,active_vehicle_id,created_at,updated_at,selection_explicit) VALUES (?,?,?,?,?,?)",
+                        (identifier(session_id), owner_id, vehicle_id, stamp, stamp, int(vehicle_id is not None)))
 
     def session(self, session_id, owner_id):
         row = self.db.execute("SELECT * FROM sessions WHERE id=? AND owner_id=?", (session_id, owner_id)).fetchone()
@@ -224,7 +261,8 @@ class OwnershipStore:
     def select_vehicle(self, session_id, owner_id, vehicle_id, now):
         self.session(session_id, owner_id)
         self.vehicle(owner_id, vehicle_id, now)
-        self.db.execute("UPDATE sessions SET active_vehicle_id=?, updated_at=? WHERE id=?", (vehicle_id, utc(now).isoformat(), session_id))
+        self.db.execute("UPDATE sessions SET active_vehicle_id=?, updated_at=?, selection_explicit=1 WHERE id=?",
+                        (vehicle_id, utc(now).isoformat(), session_id))
 
     def set_vehicle_field(self, vehicle_id, name, value, now):
         if name not in PROFILE_FIELDS:
@@ -271,10 +309,12 @@ class OwnershipStore:
         return VehicleContext(self.vehicle(owner_id, vehicle_id, now).profile, self.service_records(vehicle_id, now, limit))
 
     def add_proposal(self, proposal_id, session_id, vehicle_id, message_id, command, now, expires_at,
-                     preconditions=None):
+                     preconditions=None, source_channel=None):
         payload = asdict(command)
         if preconditions:
             payload["preconditions"] = preconditions
+        if source_channel:
+            payload["source_channel"] = source_channel
         self.db.execute("INSERT INTO commands VALUES (?,?,?,?,?,?,?,?,?)",
                         (proposal_id, session_id, vehicle_id, message_id, encode(payload), utc(now).isoformat(),
                          utc(expires_at).isoformat(), "PENDING", None))
@@ -560,6 +600,9 @@ class OwnershipStore:
                      provider_message_id,next_attempt_at) VALUES (?,?,?,?,?,?,?,?)""",
                     (notification_id, row["attempt_count"] + 1, attempted_stamp, row["channel"], result,
                      error_category, provider_message_id, next_attempt_at))
+                if provider_message_id:
+                    self.db.execute("UPDATE twilio_delivery_status SET notification_id=? WHERE message_sid=? AND notification_id IS NULL",
+                                    (notification_id, provider_message_id))
             self.db.execute("DELETE FROM notification_claims WHERE notification_id=?", (notification_id,))
             return True
 
@@ -579,3 +622,125 @@ class OwnershipStore:
         row = self.db.execute("SELECT external_user_id FROM channel_bindings WHERE owner_id=? AND channel=? ORDER BY external_user_id LIMIT 1",
                               (owner_id, channel)).fetchone()
         return row[0] if row else None
+
+    def save_service_request(self, request):
+        data = asdict(request)
+        self.db.execute("INSERT INTO service_requests VALUES (?,?,?,?,?,?)",
+                        (request.request_id, request.owner_id, request.vehicle_id,
+                         utc(request.created_at).isoformat(), request.status, encode(data)))
+
+    def service_request(self, owner_id, vehicle_id, request_id):
+        row = self.db.execute("SELECT * FROM service_requests WHERE id=? AND owner_id=? AND vehicle_id=?",
+                              (request_id, owner_id, vehicle_id)).fetchone()
+        return {**dict(row), "data": json.loads(row["data"])} if row else None
+
+    def service_requests(self, owner_id, vehicle_id):
+        return [{**dict(row), "data": json.loads(row["data"])} for row in self.db.execute(
+            "SELECT * FROM service_requests WHERE owner_id=? AND vehicle_id=? ORDER BY created_at DESC,id DESC LIMIT 20",
+            (owner_id, vehicle_id))]
+
+    def save_demo_booking(self, booking_id, request_id, owner_id, vehicle_id, slot, now):
+        self.db.execute("INSERT INTO demo_bookings VALUES (?,?,?,?,?,?,?,?)",
+                        (booking_id, request_id, owner_id, vehicle_id, slot.slot_id,
+                         utc(slot.starts_at).isoformat(), utc(now).isoformat(), "SIMULATED"))
+
+    def demo_bookings(self, owner_id, vehicle_id):
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM demo_bookings WHERE owner_id=? AND vehicle_id=? ORDER BY created_at DESC,id DESC LIMIT 20",
+            (owner_id, vehicle_id))]
+
+    def active_demo_booking(self, owner_id, vehicle_id, request_id):
+        row = self.db.execute("SELECT * FROM demo_bookings WHERE owner_id=? AND vehicle_id=? AND request_id=? AND status='SIMULATED'",
+                              (owner_id, vehicle_id, request_id)).fetchone()
+        return dict(row) if row else None
+
+    def save_handoff(self, handoff_id, owner_id, vehicle_id, request_id, packet, now):
+        self.db.execute("INSERT INTO handoff_requests VALUES (?,?,?,?,?,?,?)",
+                        (handoff_id, owner_id, vehicle_id, request_id, utc(now).isoformat(),
+                         encode(packet), "REQUESTED"))
+
+    def handoffs(self, owner_id, vehicle_id):
+        return [{**dict(row), "packet": json.loads(row["packet"])} for row in self.db.execute(
+            "SELECT * FROM handoff_requests WHERE owner_id=? AND vehicle_id=? ORDER BY created_at DESC,id DESC LIMIT 20",
+            (owner_id, vehicle_id))]
+
+    def save_business_event(self, event):
+        payload = event["payload"]
+        fields = {"maintenance_due": {"maintenance_item", "status", "source_id"},
+                  "maintenance_completed": {"service_type", "record_id"},
+                  "service_interest": {"intent_type"},
+                  "booking_intent": {"service_request_id"},
+                  "service_request_created": {"intent_type", "requested_service_count"},
+                  "human_handoff_requested": {"handoff_id"}}
+        if not isinstance(payload, dict) or event["event_type"] not in fields or set(payload) != fields[event["event_type"]]:
+            raise ValueError("Invalid local business event payload.")
+        if len(encode(payload)) > 2048:
+            raise ValueError("Business event payload exceeds bound.")
+        self.db.execute("""INSERT OR IGNORE INTO business_events
+            (id,event_type,schema_version,occurred_at,owner_id,vehicle_id,source_channel,
+             source_entity_id,dedupe_key,payload) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (event["id"], event["event_type"], 1, utc(event["occurred_at"]).isoformat(),
+             event["owner_id"], event["vehicle_id"], event["source_channel"],
+             event["source_entity_id"], event["dedupe_key"], encode(payload)))
+
+    def business_events(self, owner_id=None, vehicle_id=None, *, limit=None):
+        clauses, args = [], []
+        if owner_id is not None:
+            clauses.append("owner_id=?")
+            args.append(owner_id)
+        if vehicle_id is not None:
+            clauses.append("vehicle_id=?")
+            args.append(vehicle_id)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        suffix = " ORDER BY occurred_at,id"
+        if limit is not None:
+            if type(limit) is not int or not 1 <= limit <= 1000:
+                raise ValueError("Invalid business event limit.")
+            suffix = " ORDER BY occurred_at DESC,id DESC LIMIT ?"
+            args.append(limit)
+        return [{**dict(row), "payload": json.loads(row["payload"])} for row in self.db.execute(
+            "SELECT * FROM business_events" + where + suffix, args)]
+
+    def business_event_counts(self, owner_id):
+        return {row["event_type"]: row["count"] for row in self.db.execute(
+            "SELECT event_type,COUNT(*) AS count FROM business_events WHERE owner_id=? GROUP BY event_type",
+            (identifier(owner_id),))}
+
+    def claim_twilio_inbound(self, message_sid, sender_hash, now):
+        return bool(self.db.execute("INSERT OR IGNORE INTO twilio_inbound_receipts VALUES (?,?,?,?)",
+            (identifier(message_sid), identifier(sender_hash), None, utc(now).isoformat())).rowcount)
+
+    def twilio_inbound_response(self, message_sid, sender_hash):
+        row = self.db.execute("SELECT sender_hash,response FROM twilio_inbound_receipts WHERE message_sid=?",
+                              (identifier(message_sid),)).fetchone()
+        if row and row["sender_hash"] != identifier(sender_hash):
+            raise PermissionError("Twilio message belongs to a different sender.")
+        return row["response"] if row else None
+
+    def finish_twilio_inbound(self, message_sid):
+        # Retain a completion marker only. Returning a Message again on retry
+        # would ask Twilio to deliver the same conversational reply twice.
+        self.db.execute("UPDATE twilio_inbound_receipts SET response=? WHERE message_sid=?",
+                        ("<Response/>", identifier(message_sid)))
+
+    def twilio_inbound_received_at(self, message_sid):
+        row = self.db.execute("SELECT received_at FROM twilio_inbound_receipts WHERE message_sid=?",
+                              (identifier(message_sid),)).fetchone()
+        return datetime.fromisoformat(row[0]) if row else None
+
+    def save_twilio_status(self, message_sid, status, rank, now, error_code=None):
+        """Status callbacks may arrive out of order; terminal failure never overrides success."""
+        row = self.db.execute("SELECT notification_id FROM notification_attempts WHERE provider_message_id=?",
+                              (identifier(message_sid),)).fetchone()
+        self.db.execute("""INSERT INTO twilio_delivery_status VALUES (?,?,?,?,?,?)
+            ON CONFLICT(message_sid) DO UPDATE SET
+              notification_id=COALESCE(excluded.notification_id,twilio_delivery_status.notification_id),
+              status=excluded.status,rank=excluded.rank,updated_at=excluded.updated_at,
+              error_code=excluded.error_code
+            WHERE excluded.rank>twilio_delivery_status.rank""",
+            (message_sid, row[0] if row else None, status, rank, utc(now).isoformat(), error_code))
+
+    def twilio_status(self, message_sid):
+        row = self.db.execute("SELECT * FROM twilio_delivery_status WHERE message_sid=?",
+                              (identifier(message_sid),)).fetchone()
+        return dict(row) if row else None

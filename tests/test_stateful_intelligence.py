@@ -148,7 +148,7 @@ class StatefulIntelligenceTests(unittest.TestCase):
         self.assertEqual(result.status, "confirmation_required")
         self.assertTrue(result.trace.routing.fallback_used)
         self.assertEqual(result.trace.routing.fallback_reason, "router_failure")
-        self.assertEqual(result.trace.planner.exposed_capability_count, 10)
+        self.assertEqual(result.trace.planner.exposed_capability_count, 11)
         self.assertFalse(self.store.service_records(self.vehicle_id, NOW))
         self.assertEqual(self.confirm(result.proposed_commands[0]).status, "applied")
 

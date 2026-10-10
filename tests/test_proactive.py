@@ -383,13 +383,14 @@ class ProactiveTests(unittest.TestCase):
             for name in ("notification_claims", "notification_attempts", "notification_outbox",
                          "proactive_events", "owner_reminders", "notification_preferences"):
                 connection.execute(f"DROP TABLE {name}")
+            connection.execute("ALTER TABLE sessions DROP COLUMN selection_explicit")
             connection.execute("PRAGMA user_version=2")
             connection.commit()
         finally:
             connection.close()
         self.store = OwnershipStore(self.path)
         self.addCleanup(self.store.close)
-        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(self.store.db.execute("PRAGMA user_version").fetchone()[0], 5)
         self.assertEqual(self.store.owner_for_vehicle(self.vehicle.vehicle_id), self.owner)
         self.assertFalse(ProactiveService(CarMindApp(self.store, FakePlannerProvider([]))).preferences(self.owner).enabled)
 

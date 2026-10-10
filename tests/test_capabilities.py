@@ -17,14 +17,14 @@ class CapabilityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = CapabilityRegistry()
 
-    def test_exact_ten_packs_validate(self) -> None:
+    def test_exact_eleven_packs_validate(self) -> None:
         packs = list_capabilities()
         self.assertEqual({pack.id for pack in packs}, {
             "engine", "cooling", "battery", "electrical", "tires", "fuel_economy",
-            "maintenance", "service_history", "diagnostic_codes", "trip_readiness",
+            "maintenance", "service_history", "diagnostic_codes", "trip_readiness", "aftersales",
         })
-        self.assertEqual(len(packs), 10)
-        self.assertEqual(len({pack.id for pack in packs}), 10)
+        self.assertEqual(len(packs), 11)
+        self.assertEqual(len({pack.id for pack in packs}), 11)
         for pack in packs:
             self.assertEqual(pack.version, 1)
             self.assertTrue(pack.routing_description.strip())
@@ -47,7 +47,7 @@ class CapabilityTests(unittest.TestCase):
 
     def test_full_context_has_more_tools_and_instructions(self) -> None:
         full, narrow = load_all_capabilities(), load_capabilities(["tires"])
-        self.assertEqual(full.capability_count, 10)
+        self.assertEqual(full.capability_count, 11)
         self.assertEqual(full.tool_count, 25)
         self.assertGreater(full.tool_count, narrow.tool_count)
         self.assertGreater(full.instruction_character_count, narrow.instruction_character_count)
@@ -88,7 +88,7 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(view, {pack.id: pack.routing_description for pack in list_capabilities()})
         self.assertNotIn("planner_instructions", json.dumps(view))
         view.clear()
-        self.assertEqual(len(self.registry.routing_descriptions()), 10)
+        self.assertEqual(len(self.registry.routing_descriptions()), 11)
 
     def test_loaded_data_has_no_scenario_truth(self) -> None:
         text = json.dumps(asdict(load_all_capabilities()))

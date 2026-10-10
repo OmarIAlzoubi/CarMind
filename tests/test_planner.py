@@ -30,7 +30,7 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual({t["tool_id"] for t in initial["tools"]},
                          set(TOOL_CATALOG) - {"search_manufacturer_manual"})
         self.assertTrue(all("value" not in i for i in initial["evidence_index"]))
-        self.assertEqual(result.trace.exposed_capability_count, 10)
+        self.assertEqual(result.trace.exposed_capability_count, 11)
         self.assertEqual(result.trace.exposed_tool_count, 25)
         self.assertEqual(result.trace.planner_instruction_character_count, load_all_capabilities().instruction_character_count)
 

@@ -427,6 +427,13 @@ class ProactiveService:
             else:
                 created += 1
             self.store.save_proactive_event(event)
+            if (event["source_type"] == "MANUFACTURER" and
+                    event["event_type"] in ("MAINTENANCE_DUE", "MAINTENANCE_OVERDUE") and
+                    (old is None or old["event_type"] != event["event_type"])):
+                self.app._business_event("maintenance_due", owner_id, vehicle_id, "system",
+                    event["id"] + ":" + event["event_type"], now,
+                    {"maintenance_item": event["maintenance_item"],
+                     "status": event["event_type"], "source_id": event["source_id"]})
             self._queue(event, preferences, now)
         for event_id, old in prior.items():
             if event_id not in active and old["status"] != "RESOLVED":

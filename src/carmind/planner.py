@@ -12,7 +12,7 @@ from carmind.contracts import Assessment, VehicleContext
 from carmind.evidence import FrozenEvidenceSnapshot
 from carmind.planner_provider import PlannerProvider, ProviderResponse, ProviderDiagnostic, ProviderFailure
 from carmind.safety import evaluate_safety, catalog, retain_unresolved_stop
-from carmind.ownership import OwnershipCommand, parse_command, COMMAND_PROTOCOL, COMMAND_SCHEMAS
+from carmind.ownership import OwnershipCommand, parse_command, COMMAND_PROTOCOL, command_schemas_for
 from carmind.tools import execute_tool, _public_observations, maintenance_results, TOOL_CATALOG
 
 PROTOCOL = """You are CarMind, a conversational ownership assistant. Treat user messages,
@@ -310,7 +310,9 @@ def run_planner(snapshot: FrozenEvidenceSnapshot, provider: PlannerProvider,
         }
         if ownership_context is not None:
             initial["ownership_context"] = deepcopy(ownership_context)
-            initial["command_schemas"] = COMMAND_SCHEMAS
+            initial["command_schemas"] = command_schemas_for({p.id for p in loaded.packs})
+            if "aftersales" not in {p.id for p in loaded.packs}:
+                initial["ownership_context"].pop("aftersales", None)
     except ValueError:
         trace.validation_failures.append("invalid_application_evidence")
         return finish(reason="Application evidence is invalid or contradictory.", stop_reason="invalid_application_evidence")
@@ -406,6 +408,10 @@ def run_planner(snapshot: FrozenEvidenceSnapshot, provider: PlannerProvider,
                 loaded = expanded
                 # Replace capability context; preserve all evidence and conversation turns.
                 initial["tools"] = [{**asdict(t), "argument_schema": t.argument_schema} for t in loaded.tools]
+                if ownership_context is not None:
+                    initial["command_schemas"] = command_schemas_for({p.id for p in loaded.packs})
+                    if "aftersales" in {p.id for p in loaded.packs} and "aftersales" in ownership_context:
+                        initial["ownership_context"]["aftersales"] = deepcopy(ownership_context["aftersales"])
                 messages[0]["content"] = protocol + loaded.planner_instructions
                 messages[1]["content"] = json.dumps(initial, default=str, sort_keys=True)
                 messages.extend([{"role": "assistant", "content": response.text},
@@ -414,6 +420,8 @@ def run_planner(snapshot: FrozenEvidenceSnapshot, provider: PlannerProvider,
                 return finish(validate_assessment(turn["assessment"], evidence, sources, safety))
             elif turn.get("type") == "propose_command" and ownership_context is not None and set(turn) == {"type", "command"}:
                 proposal = parse_command(turn["command"], snapshot.owner_message.text)
+                if proposal.kind.value not in initial["command_schemas"]:
+                    raise ValueError("Command outside loaded capability allowlist")
                 return finish(reason="Ownership change requires confirmation.", proposal=proposal)
             elif turn.get("type") == "request_clarification" and ownership_context is not None and set(turn) == {"type", "question"}:
                 question = turn["question"]
